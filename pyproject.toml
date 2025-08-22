@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-timescales"
+version = "0.0.0"
+description = "A Python package for calculating astrophysical timescales."
+readme = "README.md"
+authors = [
+  { name = "Claire E. Williams", email = "clairewilliams@astro.ucla.edu" }
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.22",
+  "astropy>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/astro-claire/model-timescales"
+Repository = "https://github.com/astro-claire/model-timescales"
+Issues = "https://github.com/astro-claire/model-timescales/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
