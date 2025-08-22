@@ -89,9 +89,9 @@ def collision_vs_main_sequence(
     
     
     if t_ms_kwargs:
-        t_ms = t_ms_func(m_star, **t_ms_kwargs)
+        t_ms = t_ms_func(m_star, **t_ms_kwargs).to('yr')
     else:
-        t_ms = t_ms_func(m_star)
+        t_ms = t_ms_func(m_star).to('yr')
 
     out["tms/tcoll"]=[]
     out["collisions"]=[] #will store 1 if collisions important, 0 if not
@@ -99,7 +99,7 @@ def collision_vs_main_sequence(
     for sys_id, r in zip(ids, ensemble.radii):
         sys_data = get_system(out,sys_id)
         for j in range(len(r)):
-            ratio_j = t_ms/sys_data["t_coll"][j]
+            ratio_j = t_ms/(sys_data["t_coll"][j]).to('yr')
             out["tms/tcoll"].append(ratio_j)
             if ratio_j >1.:
                 out["collisions"].append(1.)
@@ -168,17 +168,17 @@ def destructive_colllision_criterion(
         else:
             raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
     out = structural_table(ensemble, 
-                        include = ("sigma"), 
+                        fields = ("sigma"), 
                         m_star = m_star, 
                         system_ids=system_ids, 
                         )
     
     if r_ms_kwargs:
-        r_ms = r_ms_func(m_star, **r_ms_kwargs)
+        r_ms = r_ms_function(m_star, **r_ms_kwargs)
     else:
-        r_ms = r_ms_func(m_star)
+        r_ms = r_ms_function(m_star)
 
-    v_esc = escape_velocity(m_star, r_ms)
+    v_esc = escape_velocity(m_star, r_ms).to(out["sigma"][0].unit)
 
     out["sigma/vesc"]=[]
     out["massloss"]=[] # 1 if mass loss, 0 if not
