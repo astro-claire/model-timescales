@@ -205,3 +205,130 @@ def destructive_colllision_criterion(
     # Build a DataFrame without stripping units (object dtype for Quantity columns)
     return pd.DataFrame(out)
 
+def generate_timescale_comparison(
+    ensemble, *,
+    include: Iterable[str] = ("t_relax", "t_coll" ,"t_ms" , "massloss"),
+    r_ms_function = stellar_radius_approximation,
+    r_ms_kwargs: Optional[Dict] = None,
+    m_star: Optional[Quantity]=None,
+    t_ms_func = main_sequence_lifetime_approximation,                                # signature: t_ms_func(m_star: Quantity, **kwargs) -> Quantity
+    t_ms_kwargs: Optional[Dict] = None,
+    coulomb_log: float = 10.0,
+    collision_kwargs: Optional[Dict] = None,
+    system_ids: Optional[Iterable[Union[int, str]]] = None,
+    as_: Literal["dict", "pandas"] = "dict",
+) -> Union[Table, "pandas.DataFrame"]:
+    """ 
+    Compares all star cluster timescales at each radius
+
+    Parameters
+    ----------
+    ensemble
+        A `TimescaleEnsemble` instance with .radii and corresponding model profiles.
+    r_ms_function
+        Function to calculate the stellar radius based off the stellar mass. 
+            Default: stellar_radius_approximation
+    r_ms_kwargs
+        Optional keyword arguments for r_ms_function
+            Default: None
+    t_ms_func
+        Function that returns a main-sequence lifetime for `m_star`. You can later
+        replace this with a wrapper around physics.stars.main_sequence_lifetime(...).
+    t_ms_kwargs
+        Extra args for t_ms_func (e.g., metallicity).
+    coulomb_log
+        ln Λ for relaxation time (not used directly here unless you also compute t_relax).
+    collision_kwargs
+        Extra args for collision_timescale (eccentricity, Mcollisions, etc.).
+    m_star
+        Stellar mass for number density if desired to be different from ensemble's.
+    system_ids
+        Optional explicit labels for systems; else indices (0..N-1) are used.
+    as_
+        "dict" → return a columnar dict of lists of Quantities.
+        "pandas" → return a DataFrame (requires pandas installed).
+    """
+    N = len(ensemble.radii)
+    ids = list(range(N)) if system_ids is None else list(system_ids)
+    if len(ids) != N:
+        raise ValueError("Length of system_ids must match number of systems.")
+
+    if m_star is None:
+        if  hasattr(ensemble, "Mstar"):
+            print("Using ensemble value of Mstar: "+str(ensemble.Mstar))
+            m_star = ensemble.Mstar
+        else:
+            raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
+
+
+    out = timescale_table(ensemble, 
+                    include = include, 
+                    m_star = m_star, 
+                    coulomb_log=coulomb_log,
+                    collision_kwargs = collision_kwargs,
+                    system_ids = system_ids)
+
+    if "t_ms" in include:
+        if t_ms_kwargs:
+            t_ms = t_ms_func(m_star, **t_ms_kwargs).to('yr')
+        else:
+            t_ms = t_ms_func(m_star).to('yr')
+    include = list(include)
+    if "massloss" in include:
+        masslosstable = destructive_colllision_criterion(ensemble,
+                                                        r_ms_function=r_ms_function,
+                                                        r_ms_kwargs = r_ms_kwargs,
+                                                        m_star=m_star,
+                                                        system_ids = system_ids,
+                                                        )
+        out["sigma/vesc"] = masslosstable["sigma/vesc"]
+        out["massloss"] = masslosstable["massloss"]
+        include.remove("massloss")
+    if "t_relax" and "t_coll" in include:
+        out["t_relax/t_coll"]=[]
+    if "t_relax" and "t_ms" in include:
+        out["t_ms/t_relax"] = []
+    if "t_coll" and "t_ms" in include: 
+        out["t_ms/t_coll"] =[]
+
+    out["shortest"]=[]
+    out["t_ms"] =[]
+
+    if len(include)>1:
+        for sys_id, r in zip(ids, ensemble.radii):
+            sys_data = get_system(out,sys_id)
+            for j in range(len(r)):
+                if "t_ms" in include: 
+                    shortest_name = "t_ms"
+                    shortest_tscale = t_ms
+                else: 
+                    shortest_name = "dummy"
+                    shortest_tscale = 1e50*u.yr
+                if "t_relax" in include and sys_data["t_relax"][j]<shortest_tscale:
+                    shortest_name = "t_relax"
+                    shortest_tscale = sys_data["t_relax"][j]
+                if "t_coll" in include and sys_data["t_coll"][j]<shortest_tscale:
+                    shortest_name = "t_coll"
+                    shortest_tscale = sys_data["t_coll"][j]
+                out["shortest"].append(shortest_name)
+                if "t_relax" and "t_coll" in include: 
+                    out["t_relax/t_coll"].append(sys_data["t_relax"][j]/sys_data["t_coll"][j])
+                if "t_relax" and "t_ms" in include:
+                    out["t_ms/t_relax"].append(t_ms/sys_data["t_relax"][j])
+                if "t_coll" and "t_ms" in include: 
+                    out["t_ms/t_coll"].append(t_ms/sys_data["t_coll"][j])
+
+# ("t_relax", "t_coll" ,"t_ms" , "massloss"),
+
+    
+    if as_ == "dict":
+        return out
+
+    # Optional pandas return
+    try:
+        import pandas as pd  # local import to keep pandas optional
+    except Exception as e:
+        raise ImportError('pandas is required when as_="pandas". Install with `pip install pandas`.') from e
+
+    # Build a DataFrame without stripping units (object dtype for Quantity columns)
+    return pd.DataFrame(out)
