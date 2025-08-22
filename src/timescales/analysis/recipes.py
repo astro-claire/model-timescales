@@ -9,8 +9,8 @@ import astropy.units as u
 from astropy.units import Quantity
 
 from .tables import structural_table, timescale_table, get_system
-from ..physics.stars import main_sequence_lifetime_approximation  # when you add it
-
+from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  # when you add it
+from ..utils.energy import escape_velocity
 
 
 def collision_vs_main_sequence(
@@ -94,12 +94,17 @@ def collision_vs_main_sequence(
         t_ms = t_ms_func(m_star)
 
     out["tms/tcoll"]=[]
+    out["collisions"]=[] #will store 1 if collisions important, 0 if not
 
     for sys_id, r in zip(ids, ensemble.radii):
         sys_data = get_system(out,sys_id)
         for j in range(len(r)):
             ratio_j = t_ms/sys_data["t_coll"][j]
             out["tms/tcoll"].append(ratio_j)
+            if ratio_j >1.:
+                out["collisions"].append(1.)
+            else: 
+                out["collisions"].append(0.)
 
     if as_ == "dict":
         return out
@@ -113,4 +118,90 @@ def collision_vs_main_sequence(
     # Build a DataFrame without stripping units (object dtype for Quantity columns)
     return pd.DataFrame(out)
 
+
+def destructive_colllision_criterion(
+    ensemble, *,
+    r_ms_function = stellar_radius_approximation,
+    r_ms_kwargs: Optional[Dict] = None,
+    m_star: Optional[Quanity] = None, 
+    system_ids: Optional[Iterable[Union[int, str]]] = None,
+    as_: Literal["dict", "pandas"] = "dict",
+) -> Union[Table, "pandas.DataFrame"]:
+    """
+    Build a per (system, radius) table of whether collisions should be considered constructive or destructive
+    
+    Parameters
+    ----------
+    ensemble
+        A `TimescaleEnsemble` instance with .radii and corresponding model profiles.
+    r_ms_function
+        Function to calculate the stellar radius based off the stellar mass. 
+            Default: stellar_radius_approximation
+    r_ms_kwargs
+        Optional keyword arguments for r_ms_function
+            Default: None
+    m_star
+        Stellar mass for number density if desired to be different from ensemble's.
+    system_ids
+        Optional explicit labels for systems; else indices (0..N-1) are used.
+    as_
+        "dict" → return a columnar dict of lists of Quantities.
+        "pandas" → return a DataFrame (requires pandas installed).
+
+    Returns
+    -------
+    Table or DataFrame with columns:
+        - "system_id"     (int/str)
+        - "r"             (length Quantity)
+        - "sigma/vesc" (dimensionless Quantity)
+        - "massloss" (int)
+    """
+    N = len(ensemble.radii)
+    ids = list(range(N)) if system_ids is None else list(system_ids)
+    if len(ids) != N:
+        raise ValueError("Length of system_ids must match number of systems.")
+
+    if m_star is None:
+        if  hasattr(ensemble, "Mstar"):
+            print("Using ensemble value of Mstar: "+str(ensemble.Mstar))
+            m_star = ensemble.Mstar
+        else:
+            raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
+    out = structural_table(ensemble, 
+                        include = ("sigma"), 
+                        m_star = m_star, 
+                        system_ids=system_ids, 
+                        )
+    
+    if r_ms_kwargs:
+        r_ms = r_ms_func(m_star, **r_ms_kwargs)
+    else:
+        r_ms = r_ms_func(m_star)
+
+    v_esc = escape_velocity(m_star, r_ms)
+
+    out["sigma/vesc"]=[]
+    out["massloss"]=[] # 1 if mass loss, 0 if not
+
+    for sys_id, r in zip(ids, ensemble.radii):
+        sys_data = get_system(out,sys_id)
+        for j in range(len(r)):
+            ratio_j = sys_data["sigma"][j]/v_esc
+            out["sigma/vesc"].append(ratio_j)
+            if ratio_j >1.:
+                out["massloss"].append(1.)
+            else: 
+                out["massloss"].append(0.)
+
+    if as_ == "dict":
+        return out
+
+    # Optional pandas return
+    try:
+        import pandas as pd  # local import to keep pandas optional
+    except Exception as e:
+        raise ImportError('pandas is required when as_="pandas". Install with `pip install pandas`.') from e
+
+    # Build a DataFrame without stripping units (object dtype for Quantity columns)
+    return pd.DataFrame(out)
 
