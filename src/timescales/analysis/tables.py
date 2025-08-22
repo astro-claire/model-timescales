@@ -138,6 +138,19 @@ def structural_table(
     # Build a DataFrame without stripping units (object dtype for Quantity columns)
     return pd.DataFrame(out)
 
+def get_system(table, system_id, *, as_df=False):
+    """
+    Extract all rows for a specific system ID from a table.
+    """
+    if isinstance(table, dict):
+        return {
+            key: [val for sid, val in zip(table["system_id"], values) if sid == system_id]
+            for key, values in table.items()
+        }
+    elif as_df:
+        return table[table["system_id"] == system_id]
+    else:
+        raise TypeError("Table must be a dict or pandas.DataFrame")
 
 
 def timescale_table(
@@ -225,22 +238,23 @@ def timescale_table(
 
 
     for sys_id, r in zip(ids, ensemble.radii):
+        sys_data = get_system(fields_table,sys_id)
         for j in range(len(r)):
             out["system_id"].append(sys_id)
             out["r"].append(r[j])
             if want_tcoll:
                 if collision_kwargs:
-                    out["t_coll"].append(collision_timescale(fields_table["n"][j],
-                                                        fields_table["sigma"][j],
+                    out["t_coll"].append(collision_timescale(sys_data["n"][j],
+                                                        sys_data["sigma"][j],
                                                         m_star,
                                                         **collision_kwargs))
                 else:
-                    out["t_coll"].append(collision_timescale(fields_table["n"][j],
-                                                        fields_table["sigma"][j],
+                    out["t_coll"].append(collision_timescale(sys_data["n"][j],
+                                                        sys_data["sigma"][j],
                                                         m_star))
             if want_trelax:
-                out["t_relax"].append(relaxation_timescale(fields_table["sigma"][j],
-                                                        fields_table["rho"][j],
+                out["t_relax"].append(relaxation_timescale(sys_data["sigma"][j],
+                                                        sys_data["rho"][j],
                                                         mass = m_star,
                                                         coulomb = coulomb_log
                                                         ))
