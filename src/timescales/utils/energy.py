@@ -19,3 +19,9 @@ def gravitational_potential_energy(M: Quantity, R: Quantity, *,
     M = M.to(u.kg)
     R = R.to(u.m)
     return (-alpha * c.G * M**2 / R).to(out_unit)
+
+def escape_velocity(M:Quantity,R: Quantity,*,
+                    out_unit =u.km/u.s):
+    M = M.to(u.kg)
+    R = R.to(u.m)
+    return np.sqrt(2*c.G*M/R)
