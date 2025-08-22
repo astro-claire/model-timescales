@@ -4,6 +4,7 @@ import numpy as np
 import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants as c
+from ..utils import as_quantity
 
 def stellar_radius_approximation(mass, *, mass_unit=u.M_sun) -> Quantity:
     """
@@ -44,3 +45,11 @@ def stellar_radius_approximation(mass, *, mass_unit=u.M_sun) -> Quantity:
 
     radius = (m_safe ** alpha) * u.R_sun
     return radius
+
+
+def main_sequence_lifetime_approximation(mass, *, mass_unit = u.Msun):
+    """
+    Estimate the main sequence lifteimte using standard approximation 
+    """
+    mass = as_quantity(mass,mass_unit)
+    return 10**10 *u.yr *(u.Msun/mass)**(2.5)
