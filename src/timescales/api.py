@@ -11,7 +11,8 @@ class TimescaleEnsemble:
                 Nsampling = 20,
                 Mstar = 1*u.Msun,
                 profile_kwargs: Optional[Dict] = None,
-                r_min_log10 = -3
+                r_min_log10 = -3,
+                e = 0.999
                 ):
         """
         Initializes a set of model systems and parameters for dynamical timescale calculation. 
@@ -26,14 +27,10 @@ class TimescaleEnsemble:
         self.Nsampling = Nsampling
         self.alpha = alpha
         self.Mstar = Mstar
+        self.e = e
         self.radii = _generate_radii(grid,self.Nsystems, Nsampling = Nsampling, rMin = r_min_log10)
         self.profile_kwargs = {} if profile_kwargs is None else dict(profile_kwargs)
 
-
-        # 1) Sample radii per system (ragged: each system gets its own array)
-        # self.radii: List[Quantity] = _generate_radii(
-        #     grid["R"], Nsampling=Nsampling, rMin=r_min_log10
-        # )
 
         # 2) Build a profile instance per system via the factory
         self.profiles = []
@@ -48,7 +45,7 @@ class TimescaleEnsemble:
                     # For power-law, normalize using mass within R:
                     M_ref=M_i,
                     R_ref=R_i,
-                    r0=R_i,            # common choice for reference radius
+                    r0=R_i,
                     **self.profile_kwargs,
                 )
             except KeyError as e:
@@ -75,9 +72,6 @@ class TimescaleEnsemble:
             self.sigma.append(sigma_i)
             # Generic number density (override if your model defines it differently)
             self.n.append(rho_i / self.Mstar)
-
-        # (Optional) example: compute a timescale immediately
-        # self.t_relax = [relaxation_timescale(s, rh, self.Mstar) for s, rh in zip(self.sigma, self.rho)]
 
     def __str__(self):
         """

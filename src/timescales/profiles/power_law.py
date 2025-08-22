@@ -35,7 +35,7 @@ class PowerLawProfile(ProfileBase):
             r0 = R_ref
         self.r0 = as_quantity(r0, u.pc)
         self.r_min = as_quantity(r_min, self.r0.unit)
-
+        self.M_ref = M_ref
         # Determine normalization ρ0 either directly or from mass constraint
         if rho0 is not None:
             self.rho0 = as_quantity(rho0, u.Msun / u.pc**3)
@@ -95,6 +95,19 @@ class PowerLawProfile(ProfileBase):
         """
         r = as_quantity(r, self.r0.unit)
         Menc = self.enclosed_mass(r)
+        sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
+        return np.sqrt(sigma2).to(u.km / u.s)
+
+    def velocity_dispersion_BH(self, r: Quantity) -> Quantity:
+        """
+        σ(r): choose either a closed-form (when available) or call a generic Jeans solver.
+
+        For an isotropic, spherical power-law under common assumptions one often uses:
+            σ(r) ≈ [ G M(<r) / ((1 + α) r) ]^1/2
+        (Adjust according to your exact modeling choice / reference.)
+        """
+        r = as_quantity(r, self.r0.unit)
+        Menc = as_quantity(self.M_ref, self.M_ref.unit)
         sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
         return np.sqrt(sigma2).to(u.km / u.s)
 
