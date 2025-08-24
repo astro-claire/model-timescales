@@ -292,7 +292,8 @@ def generate_timescale_comparison(
         out["t_ms/t_coll"] =[]
 
     out["shortest"]=[]
-    out["t_ms"] =[]
+    if "t_ms" in include: 
+        out["t_ms"] =[]
 
     if len(include)>1:
         for sys_id, r in zip(ids, ensemble.radii):
@@ -301,6 +302,7 @@ def generate_timescale_comparison(
                 if "t_ms" in include: 
                     shortest_name = "t_ms"
                     shortest_tscale = t_ms
+                    out['t_ms'].append(t_ms)
                 else: 
                     shortest_name = "dummy"
                     shortest_tscale = 1e50*u.yr
