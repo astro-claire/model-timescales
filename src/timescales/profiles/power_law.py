@@ -25,6 +25,7 @@ class PowerLawProfile(ProfileBase):
         # Alternatively, normalize from a mass constraint M_ref within R_ref:
         M_ref: Quantity | None = None,
         R_ref: Quantity | None = None,
+        V_c: Quantity | None = None,
         r_min: Quantity = 0 * u.cm,
     ) -> None:
         super().__init__(
@@ -36,6 +37,7 @@ class PowerLawProfile(ProfileBase):
         self.r0 = as_quantity(r0, u.pc)
         self.r_min = as_quantity(r_min, self.r0.unit)
         self.M_ref = M_ref
+        self.V_c = V_c
         # Determine normalization ρ0 either directly or from mass constraint
         if rho0 is not None:
             self.rho0 = as_quantity(rho0, u.Msun / u.pc**3)
@@ -85,17 +87,37 @@ class PowerLawProfile(ProfileBase):
 
         return M
 
+    # def velocity_dispersion(self, r: Quantity) -> Quantity:
+    #     """
+    #     σ(r): choose either a closed-form (when available) or call a generic Jeans solver.
+
+    #     For an isotropic, spherical power-law under common assumptions one often uses:
+    #         σ(r) ≈ [ G M(<r) / ((1 + α) r) ]^1/2
+    #     (Adjust according to your exact modeling choice / reference.)
+    #     """
+    #     r = as_quantity(r, self.r0.unit)
+    #     # Menc = self.enclosed_mass(r)
+    #     Menc = as_quantity(self.M_ref, self.M_ref.unit)
+
+    #     sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
+    #     return np.sqrt(sigma2).to(u.km / u.s)
+    
     def velocity_dispersion(self, r: Quantity) -> Quantity:
         """
-        σ(r): choose either a closed-form (when available) or call a generic Jeans solver.
-
-        For an isotropic, spherical power-law under common assumptions one often uses:
-            σ(r) ≈ [ G M(<r) / ((1 + α) r) ]^1/2
-        (Adjust according to your exact modeling choice / reference.)
         """
         r = as_quantity(r, self.r0.unit)
-        Menc = self.enclosed_mass(r)
-        sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
+        # Menc = self.enclosed_mass(r)
+        Menc = as_quantity(self.M_ref, self.M_ref.unit)
+        # sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
+        if self.V_c is not None:
+            V_c = as_quantity(self.V_c, u.km/u.s)
+            V_norm = as_quantity(np.sqrt(const.G * Menc /self.r0), u.km/u.s )
+            constant = (V_c/V_norm )**2
+            V_c2 = constant * const.G * Menc /r
+
+        else: 
+            V_c2 =const.G * Menc /r
+        sigma2 = V_c2/(1.0+self.alpha)
         return np.sqrt(sigma2).to(u.km / u.s)
 
     def velocity_dispersion_BH(self, r: Quantity) -> Quantity:
