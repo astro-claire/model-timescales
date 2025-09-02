@@ -29,6 +29,7 @@ _BUILTIN_MODULES: List[str] = [
     # Keep this list tiny; it's safe to leave modules out and let them
     # import themselves when referenced from elsewhere.
     "timescales.profiles.power_law",
+    "timescales.profiles.power_law_BH"
 ]
 
 # -----------------------------------------------------------------------------

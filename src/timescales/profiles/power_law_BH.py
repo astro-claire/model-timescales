@@ -9,11 +9,12 @@ from .base import ProfileBase
 from ..factory import register_profile
 from ..utils.units import as_quantity  # your helper for coercion
 
-@register_profile("power-law", aliases=("pl"))
-class PowerLawProfile(ProfileBase):
+@register_profile("power-law-bh", aliases=("plbh", "PowerLawBH"))
+class PowerLawProfileBH(ProfileBase):
     """
     Spherical power-law structure:
         ρ(r) = ρ0 * (r / r0)^(-α),  with optional inner cutoff r_min > 0 if α ≥ 3.
+        Additional black hole 
     """
 
     def __init__(
@@ -26,6 +27,7 @@ class PowerLawProfile(ProfileBase):
         M_ref: Quantity | None = None,
         R_ref: Quantity | None = None,
         V_c: Quantity | None = None,
+        M_bh: Quantity | None = None,
         r_min: Quantity = 0 * u.cm,
     ) -> None:
         super().__init__(
@@ -38,6 +40,10 @@ class PowerLawProfile(ProfileBase):
         self.r_min = as_quantity(r_min, self.r0.unit)
         self.M_ref = M_ref
         self.V_c = V_c
+        if M_bh is None:
+            #zero solar mass black hole if none provided- behavior will be identical to power law. 
+            M_bh = 0*u.Msun
+        self.M_bh = M_bh
         # Determine normalization ρ0 either directly or from mass constraint
         if rho0 is not None:
             self.rho0 = as_quantity(rho0, u.Msun / u.pc**3)
@@ -89,7 +95,7 @@ class PowerLawProfile(ProfileBase):
 
     def velocity_dispersion(self, r: Quantity) -> Quantity:
         """
-        Calculate the velocity dispersion for a power law system (no point mass/black hole)
+        Calculate the velocity dispersion for a power law system including the gravitational effect of BH
         Normalizes to the model's velocity dispersion. 
         
         """
@@ -106,28 +112,11 @@ class PowerLawProfile(ProfileBase):
                 Mtot = as_quantity(self.enclosed_mass(self.r0),u.Msun)
                 V_norm = as_quantity(np.sqrt(const.G * Mtot /self.r0), u.km/u.s )
             constant = (V_c/V_norm )**2
-        sigma2 = constant * const.G * Menc / (r * (1.0 + self.alpha))
+        stellar_term = constant * const.G * Menc / (r * (1.0 + self.alpha)) #only apply normalization to stellar term
+        black_hole_term = const.G * self.M_bh /(r * (1.0 + self.alpha))
+        sigma2 = stellar_term + black_hole_term
         return np.sqrt(sigma2).to(u.km / u.s)
-    
-    # def velocity_dispersion(self, r: Quantity) -> Quantity:
-    #     """
-    #     """
-    #     r = as_quantity(r, self.r0.unit)
-    #     # Menc = self.enclosed_mass(r)
-    #     Menc = as_quantity(self.M_ref, self.M_ref.unit)
-    #     # sigma2 = const.G * Menc / (r * (1.0 + self.alpha))
-    #     if self.V_c is not None:
-    #         V_c = as_quantity(self.V_c, u.km/u.s)
-    #         V_norm = as_quantity(np.sqrt(const.G * Menc /self.r0), u.km/u.s )
-    #         constant = (V_c/V_norm )**2
-    #         V_c2 = constant * const.G * Menc /r
-
-    #     else: 
-    #         V_c2 =const.G * Menc /r
-    #     sigma2 = V_c2/(1.0+self.alpha)
-    #     return np.sqrt(sigma2).to(u.km / u.s)
-
-
+        
     # ---------------------------- helpers -----------------------------------
 
     def _rho0_from_mass_constraint(self, M: Quantity, R: Quantity,M_unit=u.Msun, r_unit=u.pc) -> Quantity:
