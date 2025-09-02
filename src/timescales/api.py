@@ -1,7 +1,9 @@
 import astropy.units as u 
 from .sampling import _generate_radii
 from .factory import create_profile, available_profiles
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable, Union
+from types import MethodType
+import inspect
 
 class TimescaleEnsemble:
     def __init__(self,
@@ -12,7 +14,9 @@ class TimescaleEnsemble:
                 Mstar = 1*u.Msun,
                 profile_kwargs: Optional[Dict] = None,
                 r_min_log10 = -3,
-                e = 0.999
+                e = 0.999,
+                velocity_function: Optional[Union[str, Callable]] = None,
+                velocity_kwargs: Optional[Dict] = None,
                 ):
         """
         Initializes a set of model systems and parameters for dynamical timescale calculation. 
@@ -29,6 +33,8 @@ class TimescaleEnsemble:
         self.Mstar = Mstar
         self.e = e
         self.radii = _generate_radii(grid,self.Nsystems, Nsampling = Nsampling, rMin = r_min_log10)
+        self._velocity_selector = velocity_function
+        self._velocity_kwargs = {} if velocity_kwargs is None else dict(velocity_kwargs)
         self.profile_kwargs = {} if profile_kwargs is None else dict(profile_kwargs)
 
 
@@ -37,6 +43,10 @@ class TimescaleEnsemble:
         for i in range(self.Nsystems):
             M_i = grid["M"][i]
             R_i = grid["R"][i]
+            if "V" in grid.keys():
+                V_i = grid["V"][i]
+            else:
+                V_i = None
 
             try:
                 prof = create_profile(
@@ -45,6 +55,7 @@ class TimescaleEnsemble:
                     # For power-law, normalize using mass within R:
                     M_ref=M_i,
                     R_ref=R_i,
+                    V_c = V_i,
                     r0=R_i,
                     **self.profile_kwargs,
                 )
@@ -66,12 +77,38 @@ class TimescaleEnsemble:
             r_i = self.radii[i]
             rho_i = prof.density(r_i)
             Menc_i = prof.enclosed_mass(r_i)
-            sigma_i = prof.velocity_dispersion(r_i)
+            vel_fn = self._get_velocity_callable(prof)
+            sigma_i = vel_fn(r_i, **self._velocity_kwargs) # call it
+
             self.rho.append(rho_i)
             self.Menc.append(Menc_i)
             self.sigma.append(sigma_i)
-            # Generic number density (override if your model defines it differently)
+            # Generic number density (TODO allow for other ways to calcualte this)
             self.n.append(rho_i / self.Mstar)
+            
+    def _get_velocity_callable(self, prof):
+            """Return a callable f(r, **kwargs) that computes sigma for this profile."""
+            vf = self._velocity_selector
+            if vf is None:
+                return prof.velocity_dispersion  # default method (already bound)
+
+            if isinstance(vf, str):
+                # Look up by name on the profile (must exist)
+                fn = getattr(prof, vf)
+                if not callable(fn):
+                    raise TypeError(f'Attribute "{vf}" on {type(prof).__name__} is not callable.')
+                return fn  # already bound
+
+            if callable(vf):
+                # If user passed a function defined on the class, bind it to this instance.
+                # If they passed a bound method, this is a no-op.
+                try:
+                    return MethodType(vf, prof)
+                except TypeError:
+                    # Fallback: some callables may not be descriptors; assume signature (r, **kwargs)
+                    return vf
+
+            raise TypeError("velocity_function must be None, a method name (str), or a callable.")
 
     def __str__(self):
         """
