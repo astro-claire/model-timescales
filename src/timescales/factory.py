@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module, metadata
 from typing import Callable, Dict, Iterable, List, Optional, Type, TypeVar
+import pkgutil
 
 from .profiles.base import ProfileBase  # your abstract interface
 
@@ -28,8 +29,8 @@ _BUILTIN_MODULES: List[str] = [
     # Import paths of built-in profiles that should be available by default.
     # Keep this list tiny; it's safe to leave modules out and let them
     # import themselves when referenced from elsewhere.
-    "timescales.profiles.power_law",
-    "timescales.profiles.power_law_BH"
+    "timescales.profiles.power_law"
+    # "timescales.profiles.power_law_BH"
 ]
 
 # -----------------------------------------------------------------------------
@@ -89,42 +90,42 @@ def register_profile(name: str, *, aliases: Iterable[str] = ()) -> Callable[[Typ
 # Discovery (optional)
 # -----------------------------------------------------------------------------
 def _import_builtins() -> None:
-    """Import built-in profile modules so their decorators run and register classes."""
-    for mod in _BUILTIN_MODULES:
+    # Import anything inside timescales.profiles so decorators run
+    import timescales.profiles as _pkg
+    for m in pkgutil.iter_modules(_pkg.__path__, _pkg.__name__ + "."):
         try:
-            import_module(mod)
+            import_module(m.name)
         except Exception:
-            # Keep factory robust even if some optional profiles aren't present yet.
-            # You can log this if you add a logger.
+            # optionally log; don't crash discovery if one profile is broken
             pass
 
-# def _load_plugins() -> None:
-#     """
-#     Discover third-party profiles via entry points.
-#     Package authors can expose profiles by declaring in their pyproject.toml:
+def _load_plugins() -> None:
+    """
+    Discover third-party profiles via entry points.
+    Package authors can expose profiles by declaring in their pyproject.toml:
 
-#         [project.entry-points."timescales.profiles"]
-#         nfw = "somepkg.profiles.nfw:NFWProfile"
+        [project.entry-points."timescales.profiles"]
+        nfw = "somepkg.profiles.nfw:NFWProfile"
 
-#     The entry point name becomes the canonical registry name.
-#     """
-#     try:
-#         eps = metadata.entry_points()  # Py>=3.10 returns EntryPoints object
-#     except Exception:
-#         return
-#     for ep in eps.select(group="timescales.profiles"):
-#         try:
-#             cls = ep.load()
-#             if not issubclass(cls, ProfileBase):
-#                 continue
-#             _register_name(ep.name, cls)
-#             # Optional: let plugin provide its own aliases via a class attribute
-#             aliases = getattr(cls, "ALIASES", ())
-#             for a in aliases:
-#                 _register_alias(a, ep.name)
-#         except Exception:
-#             # Ignore broken plugins; optionally log
-#             continue
+    The entry point name becomes the canonical registry name.
+    """
+    try:
+        eps = metadata.entry_points()  # Py>=3.10 returns EntryPoints object
+    except Exception:
+        return
+    for ep in eps.select(group="timescales.profiles"):
+        try:
+            cls = ep.load()
+            if not issubclass(cls, ProfileBase):
+                continue
+            _register_name(ep.name, cls)
+            # Optional: let plugin provide its own aliases via a class attribute
+            aliases = getattr(cls, "ALIASES", ())
+            for a in aliases:
+                _register_alias(a, ep.name)
+        except Exception:
+            # Ignore broken plugins; optionally log
+            continue
 
 # -----------------------------------------------------------------------------
 # Public API
@@ -170,4 +171,3 @@ def create_profile(name: str, /, **kwargs) -> ProfileBase:
     cls = get_profile_class(name)
     return cls(**kwargs)
 
-available_profiles()
