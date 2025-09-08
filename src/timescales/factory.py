@@ -30,7 +30,6 @@ _BUILTIN_MODULES: List[str] = [
     # Keep this list tiny; it's safe to leave modules out and let them
     # import themselves when referenced from elsewhere.
     "timescales.profiles.power_law"
-    # "timescales.profiles.power_law_BH"
 ]
 
 # -----------------------------------------------------------------------------
@@ -99,33 +98,33 @@ def _import_builtins() -> None:
             # optionally log; don't crash discovery if one profile is broken
             pass
 
-def _load_plugins() -> None:
-    """
-    Discover third-party profiles via entry points.
-    Package authors can expose profiles by declaring in their pyproject.toml:
+# def _load_plugins() -> None:
+#     """
+#     Discover third-party profiles via entry points.
+#     Package authors can expose profiles by declaring in their pyproject.toml:
 
-        [project.entry-points."timescales.profiles"]
-        nfw = "somepkg.profiles.nfw:NFWProfile"
+#         [project.entry-points."timescales.profiles"]
+#         nfw = "somepkg.profiles.nfw:NFWProfile"
 
-    The entry point name becomes the canonical registry name.
-    """
-    try:
-        eps = metadata.entry_points()  # Py>=3.10 returns EntryPoints object
-    except Exception:
-        return
-    for ep in eps.select(group="timescales.profiles"):
-        try:
-            cls = ep.load()
-            if not issubclass(cls, ProfileBase):
-                continue
-            _register_name(ep.name, cls)
-            # Optional: let plugin provide its own aliases via a class attribute
-            aliases = getattr(cls, "ALIASES", ())
-            for a in aliases:
-                _register_alias(a, ep.name)
-        except Exception:
-            # Ignore broken plugins; optionally log
-            continue
+#     The entry point name becomes the canonical registry name.
+#     """
+#     try:
+#         eps = metadata.entry_points()  # Py>=3.10 returns EntryPoints object
+#     except Exception:
+#         return
+#     for ep in eps.select(group="timescales.profiles"):
+#         try:
+#             cls = ep.load()
+#             if not issubclass(cls, ProfileBase):
+#                 continue
+#             _register_name(ep.name, cls)
+#             # Optional: let plugin provide its own aliases via a class attribute
+#             aliases = getattr(cls, "ALIASES", ())
+#             for a in aliases:
+#                 _register_alias(a, ep.name)
+#         except Exception:
+#             # Ignore broken plugins; optionally log
+#             continue
 
 # -----------------------------------------------------------------------------
 # Public API
