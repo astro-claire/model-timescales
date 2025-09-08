@@ -1,4 +1,7 @@
 #src/timescales/utils/filtering.py
+import inspect
+from astropy import units as u
+from astropy.units import Quantity
 
 def filter_kwargs_for(func, kwargs):
     sig = inspect.signature(func)
