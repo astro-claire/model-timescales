@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import astropy.units as u
 from astropy.units import Quantity
-
+import warnings
 from .tables import structural_table, timescale_table, get_system
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  # when you add it
 from ..utils.energy import escape_velocity
@@ -15,15 +15,16 @@ from ..utils.energy import escape_velocity
 
 def collision_vs_main_sequence(
     ensemble, *,
-    m_star: Optional[Quantity]=None,
     # Either provide a callable for t_MS, or later wire to physics.stars.main_sequence_lifetime
     t_ms_func = main_sequence_lifetime_approximation,                                # signature: t_ms_func(m_star: Quantity, **kwargs) -> Quantity
     t_ms_kwargs: Optional[Dict] = None,
-    coulomb_log: float = 10.0,
-    collision_kwargs: Optional[Dict] = None,
     system_ids: Optional[Iterable[Union[int, str]]] = None,
     return_: Literal["table", "summary", "both"] = "table",
     as_: Literal["dict", "pandas"] = "dict",
+    verbose = True, 
+    m_star: Optional[Quantity]=None, #deprecated
+    coulomb_log=  None, #deprecated
+    collision_kwargs: Optional[Dict] = None, #deprecated
     ) -> Union[Dict, Tuple[Dict, Dict], "pandas.DataFrame"]:
     """
     Compare stellar main-sequence lifetime with stellar collision timescale
@@ -73,19 +74,34 @@ def collision_vs_main_sequence(
     3) Compare: collisions_faster(r) = [t_coll(r) < t_ms].
     4) TODO Optional: locate crossover radii where t_coll ~ t_ms (by sign changes or interpolation).
     """
+    if not m_star == None: 
+        if verbose:
+            warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
+    if not coulomb_log == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding coulomb_log as keyword argument is deprecated. Initiate ensemble with correct coulomb_log in timescale kwargs.")
+    if not collision_kwargs == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding collision_kwargs as keyword argument is deprecated. Initiate ensemble with correct collision_kwargs in timescales_kwargs.")
+
+
     N = len(ensemble.radii)
     ids = list(range(N)) if system_ids is None else list(system_ids)
     if len(ids) != N:
         raise ValueError("Length of system_ids must match number of systems.")
 
-    if m_star is None:
-        if  hasattr(ensemble, "Mstar"):
-            print("Using ensemble value of Mstar: "+str(ensemble.Mstar))
-            m_star = ensemble.Mstar
-        else:
-            raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
+    if  hasattr(ensemble, "Mstar"):
+        m_star = ensemble.Mstar
+    elif "Mstar" in ensemble.timescales_kwargs:
+        m_star  = ensemble.timescales_kwargs['Mstar']
+    else:
+        raise AttributeError("ensemble has no attribute Mstar.")
 
-    out = timescale_table(ensemble, include = ("t_coll"), m_star = m_star, collision_kwargs = collision_kwargs,system_ids = system_ids)
+
+    out = timescale_table(ensemble, 
+                            include = ("t_coll"),
+                            system_ids = system_ids, 
+                            verbose = verbose)
     
     
     if t_ms_kwargs:
@@ -123,9 +139,10 @@ def destructive_colllision_criterion(
     ensemble, *,
     r_ms_function = stellar_radius_approximation,
     r_ms_kwargs: Optional[Dict] = None,
-    m_star: Optional[Quanity] = None, 
     system_ids: Optional[Iterable[Union[int, str]]] = None,
     as_: Literal["dict", "pandas"] = "dict",
+    verbose = True, 
+    m_star: Optional[Quanity] = None, #deprecated
 ) -> Union[Table, "pandas.DataFrame"]:
     """
     Build a per (system, radius) table of whether collisions should be considered constructive or destructive
@@ -141,7 +158,7 @@ def destructive_colllision_criterion(
         Optional keyword arguments for r_ms_function
             Default: None
     m_star
-        Stellar mass for number density if desired to be different from ensemble's.
+        Deprecated
     system_ids
         Optional explicit labels for systems; else indices (0..N-1) are used.
     as_
@@ -156,20 +173,24 @@ def destructive_colllision_criterion(
         - "sigma/vesc" (dimensionless Quantity)
         - "massloss" (int)
     """
+    if not m_star == None: 
+        if verbose:
+            warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
+    
     N = len(ensemble.radii)
     ids = list(range(N)) if system_ids is None else list(system_ids)
     if len(ids) != N:
         raise ValueError("Length of system_ids must match number of systems.")
 
-    if m_star is None:
-        if  hasattr(ensemble, "Mstar"):
-            print("Using ensemble value of Mstar: "+str(ensemble.Mstar))
-            m_star = ensemble.Mstar
-        else:
-            raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
+    if  hasattr(ensemble, "Mstar"):
+        m_star = ensemble.Mstar
+    elif "Mstar" in ensemble.timescales_kwargs:
+        m_star  = ensemble.timescales_kwargs['Mstar']
+    else:
+        raise AttributeError("ensemble has no attribute Mstar.")
+
     out = structural_table(ensemble, 
                         fields = ("sigma"), 
-                        m_star = m_star, 
                         system_ids=system_ids, 
                         )
     
@@ -210,13 +231,14 @@ def generate_timescale_comparison(
     include: Iterable[str] = ("t_relax", "t_coll" ,"t_ms" , "massloss"),
     r_ms_function = stellar_radius_approximation,
     r_ms_kwargs: Optional[Dict] = None,
-    m_star: Optional[Quantity]=None,
     t_ms_func = main_sequence_lifetime_approximation,                                # signature: t_ms_func(m_star: Quantity, **kwargs) -> Quantity
     t_ms_kwargs: Optional[Dict] = None,
-    coulomb_log: float = 10.0,
-    collision_kwargs: Optional[Dict] = None,
     system_ids: Optional[Iterable[Union[int, str]]] = None,
     as_: Literal["dict", "pandas"] = "dict",
+    verbose = True,
+    m_star: Optional[Quantity]=None, #deprecated
+    coulomb_log: float = None, #deprecated
+    collision_kwargs: Optional[Dict] = None, #deprecated
 ) -> Union[Table, "pandas.DataFrame"]:
     """ 
     Compares all star cluster timescales at each radius
@@ -248,25 +270,32 @@ def generate_timescale_comparison(
         "dict" → return a columnar dict of lists of Quantities.
         "pandas" → return a DataFrame (requires pandas installed).
     """
+    if not m_star == None: 
+        if verbose:
+            warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
+    if not coulomb_log == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding coulomb_log as keyword argument is deprecated. Initiate ensemble with correct coulomb_log in timescale kwargs.")
+    if not collision_kwargs == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding collision_kwargs as keyword argument is deprecated. Initiate ensemble with correct collision_kwargs in timescales_kwargs.")
+
     N = len(ensemble.radii)
     ids = list(range(N)) if system_ids is None else list(system_ids)
     if len(ids) != N:
         raise ValueError("Length of system_ids must match number of systems.")
 
-    if m_star is None:
-        if  hasattr(ensemble, "Mstar"):
-            print("Using ensemble value of Mstar: "+str(ensemble.Mstar))
-            m_star = ensemble.Mstar
-        else:
-            raise AttributeError("ensemble has no attribute Mstar. Provide mass as keyword argument")
-
+    if  hasattr(ensemble, "Mstar"):
+        m_star = ensemble.Mstar
+    elif "Mstar" in ensemble.timescales_kwargs:
+        m_star  = ensemble.timescales_kwargs['Mstar']
+    else:
+        raise AttributeError("ensemble has no attribute Mstar.")
 
     out = timescale_table(ensemble, 
                     include = include, 
-                    m_star = m_star, 
-                    coulomb_log=coulomb_log,
-                    collision_kwargs = collision_kwargs,
-                    system_ids = system_ids)
+                    system_ids = system_ids,
+                    verbose=verbose)
 
     if "t_ms" in include:
         if t_ms_kwargs:
@@ -278,7 +307,6 @@ def generate_timescale_comparison(
         masslosstable = destructive_colllision_criterion(ensemble,
                                                         r_ms_function=r_ms_function,
                                                         r_ms_kwargs = r_ms_kwargs,
-                                                        m_star=m_star,
                                                         system_ids = system_ids,
                                                         )
         out["sigma/vesc"] = masslosstable["sigma/vesc"]
