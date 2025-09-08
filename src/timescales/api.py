@@ -4,19 +4,21 @@ from .factory import create_profile, available_profiles
 from typing import Dict, List, Optional, Callable, Union
 from types import MethodType
 import inspect
+import warnings
 
 class TimescaleEnsemble:
     def __init__(self,
                 grid, 
                 densityModel = "powerLaw", 
-                alpha = 1.25,
-                Nsampling = 20,
-                Mstar = 1*u.Msun,
-                profile_kwargs: Optional[Dict] = None,
+                Nsampling = 20, #these parameters determine the radii for each model's computations
                 r_min_log10 = -3,
-                e = 0.999,
+                profile_kwargs: Optional[Dict] = None, #dict containing any parameters necessary for computation of the density, such as pl index
+                timescales_kwargs: Optional[Dict] = None, #dict contatining any parameters necessary for computation of the timescales, such as mass of stars in cluster
                 velocity_function: Optional[Union[str, Callable]] = None,
                 velocity_kwargs: Optional[Dict] = None,
+                alpha = None, # deprecated
+                Mstar = None, #deprecated
+                e = None #deprecated
                 ):
         """
         Initializes a set of model systems and parameters for dynamical timescale calculation. 
@@ -24,18 +26,47 @@ class TimescaleEnsemble:
         Args:
             grid (dict)
             densityModel (string): choice of density model 
-            Mstar = mass of the particles/stars in the cluster (default 1 Msun)
         """
         self.grid = grid
         self.Nsystems = len(grid['R'])
         self.Nsampling = Nsampling
-        self.alpha = alpha
-        self.Mstar = Mstar
-        self.e = e
+
+        #set the profile parameters. If none are given, default to power law profile. 
+        if alpha is not None: 
+            warnings.warn("DeprecationWarning: Adding alpha as keyword argument is deprecated. Use profile_kwargs instead.")
+        if profile_kwargs:
+            self.densityModel = densityModel
+            self.profile_kwargs = dict(profile_kwargs)
+            print("Using "+str(densityModel) + " model with properties:")
+            for key in self.profile_kwargs.keys():
+                print(str(key)+"=" +str(self.profile_kwargs[key]))
+        else:
+            print("No profile arguments given. Defaulting to power law with alpha = 1.25")
+            self.densityModel = "powerLaw"
+            self.profile_kwargs =  {"alpha":1.25}
+        for key, value in self.profile_kwargs.items():
+            setattr(self, key, value)
+
+        #set parameters used for timescales calculations using the timescales kwargs:
+        if Mstar is not None: 
+            warnings.warn("DeprecationWarning: Adding Mstar as keyword argument is deprecated. Use timescales_kwargs instead.")
+        if e is not None: 
+            warnings.warn("DeprecationWarning: Adding e as keyword argument is deprecated. Use timescales_kwargs instead.")
+        if timescales_kwargs:
+            self.timescales_kwargs = dict(timescales_kwargs)
+            print("Using parameters for timescale evaluation")
+            for key in self.timescales_kwargs.keys():
+                print(str(key)+"=" +str(self.timescales_kwargs[key]))
+        else:
+            print("No timescale arguments given. Defaulting to eccentricity 0, Mstar 1Msun.")
+            self.timescales_kwargs= {"e":0, "Mstar":1*u.Msun}
+        for key, value in self.timescales_kwargs.items():
+            setattr(self, key, value)
+
+
         self.radii = _generate_radii(grid,self.Nsystems, Nsampling = Nsampling, rMin = r_min_log10)
         self._velocity_selector = velocity_function
         self._velocity_kwargs = {} if velocity_kwargs is None else dict(velocity_kwargs)
-        self.profile_kwargs = {} if profile_kwargs is None else dict(profile_kwargs)
 
 
         # 2) Build a profile instance per system via the factory
@@ -50,8 +81,7 @@ class TimescaleEnsemble:
 
             try:
                 prof = create_profile(
-                    densityModel,           # e.g., "powerlaw"
-                    alpha=self.alpha,  # shared param
+                    self.densityModel,           # e.g., "powerlaw"
                     # For power-law, normalize using mass within R:
                     M_ref=M_i,
                     R_ref=R_i,
