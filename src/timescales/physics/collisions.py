@@ -6,7 +6,9 @@ import astropy.constants as c
 from ..utils import as_quantity
 import scipy
 from .stars import stellar_radius_approximation
+from .registry import register_timescale
 
+@register_timescale("t_coll", aliases=("collision",))
 def collision_timescale(n, v, Mstar,*,
                         e = 0.,
                         alpha = 1.25,

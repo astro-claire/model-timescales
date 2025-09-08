@@ -3,7 +3,9 @@ import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants as c
 from ..utils import as_quantity
+from .registry import register_timescale
 
+@register_timescale("t_df", aliases=("dynamical-friction",))
 def dynamical_friction_timescale(M_cl,M_BH,r_h,*, 
                             mass_units = u.Msun,
                             radius_units = u.pc):

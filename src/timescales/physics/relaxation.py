@@ -3,7 +3,9 @@ import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants as c
 from ..utils import as_quantity
+from .registry import register_timescale
 
+@register_timescale("t_relax", aliases=("relaxation",))
 def relaxation_timescale(v,rho, mass, coulomb=10, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun):
     
     v = as_quantity(v,v_unit)
