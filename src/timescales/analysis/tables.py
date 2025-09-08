@@ -65,9 +65,9 @@ def structural_table(
     Include bulk properties - M, U/K, etc.
     
     """
-    if not (m_star == None and verbose == False): 
-        warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
-
+    if not m_star == None: 
+        if verbose:
+            warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
     N = len(ensemble.radii)
     ids = list(range(N)) if system_ids is None else list(system_ids)
     if len(ids) != N:
@@ -206,12 +206,15 @@ def timescale_table(
     -----
     - Pulls rho/sigma from the profiles; computes n from rho and m_star unless overridden.
     """
-    if not (m_star == None and verbose == False): 
-        warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
-    if not (coulomb_log == None and verbose == False): 
-        warnings.warn("DeprecationWarning: Adding coulomb_log as keyword argument is deprecated. Initiate ensemble with correct coulomb_log in timescale kwargs.")
-    if not (collision_kwargs == None and verbose == False): 
-        warnings.warn("DeprecationWarning: Adding collision_kwargs as keyword argument is deprecated. Initiate ensemble with correct collision_kwargs in timescales_kwargs.")
+    if not m_star == None: 
+        if verbose:
+            warnings.warn("DeprecationWarning: Adding m_star as keyword argument is deprecated. Initiate ensemble with correct mstar.")
+    if not coulomb_log == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding coulomb_log as keyword argument is deprecated. Initiate ensemble with correct coulomb_log in timescale kwargs.")
+    if not collision_kwargs == None:
+        if verbose: 
+            warnings.warn("DeprecationWarning: Adding collision_kwargs as keyword argument is deprecated. Initiate ensemble with correct collision_kwargs in timescales_kwargs.")
 
     N = len(ensemble.radii)
     ids = list(range(N)) if system_ids is None else list(system_ids)
@@ -249,7 +252,11 @@ def timescale_table(
         if verbose:
             print("will use defaults for ", missing)
 
-    fields_table = structural_table(ensemble, fields= fields,m_star = m_star,verbose = verbose, include_number_density=want_n, system_ids =system_ids)
+    fields_table = structural_table(ensemble, 
+                                    fields= fields,
+                                    verbose = verbose, 
+                                    include_number_density=want_n, 
+                                    system_ids =system_ids)
 
     # Prepare columns
     out: Table = {
