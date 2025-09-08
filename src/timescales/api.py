@@ -14,8 +14,6 @@ class TimescaleEnsemble:
                 r_min_log10 = -3,
                 profile_kwargs: Optional[Dict] = None, #dict containing any parameters necessary for computation of the density, such as pl index
                 timescales_kwargs: Optional[Dict] = None, #dict contatining any parameters necessary for computation of the timescales, such as mass of stars in cluster
-                velocity_function: Optional[Union[str, Callable]] = None,
-                velocity_kwargs: Optional[Dict] = None,
                 alpha = None, # deprecated
                 Mstar = None, #deprecated
                 e = None #deprecated
@@ -65,8 +63,6 @@ class TimescaleEnsemble:
 
 
         self.radii = _generate_radii(grid,self.Nsystems, Nsampling = Nsampling, rMin = r_min_log10)
-        self._velocity_selector = velocity_function
-        self._velocity_kwargs = {} if velocity_kwargs is None else dict(velocity_kwargs)
 
 
         # 2) Build a profile instance per system via the factory
@@ -89,12 +85,12 @@ class TimescaleEnsemble:
                     r0=R_i,
                     **self.profile_kwargs,
                 )
-            except KeyError as e:
+            except KeyError as er:
                 # Helpful error if someone passes an unknown model name
                 raise ValueError(
                     f'Unknown density profile "{densityModel}". '
                     f"Available: {', '.join(available_profiles())}"
-                ) from e
+                ) from er
 
             self.profiles.append(prof)
 
@@ -107,8 +103,7 @@ class TimescaleEnsemble:
             r_i = self.radii[i]
             rho_i = prof.density(r_i)
             Menc_i = prof.enclosed_mass(r_i)
-            vel_fn = self._get_velocity_callable(prof)
-            sigma_i = vel_fn(r_i, **self._velocity_kwargs) # call it
+            sigma_i = prof.velocity_dispersion(r_i)
 
             self.rho.append(rho_i)
             self.Menc.append(Menc_i)
@@ -116,29 +111,6 @@ class TimescaleEnsemble:
             # Generic number density (TODO allow for other ways to calcualte this)
             self.n.append(rho_i / self.Mstar)
             
-    def _get_velocity_callable(self, prof):
-            """Return a callable f(r, **kwargs) that computes sigma for this profile."""
-            vf = self._velocity_selector
-            if vf is None:
-                return prof.velocity_dispersion  # default method (already bound)
-
-            if isinstance(vf, str):
-                # Look up by name on the profile (must exist)
-                fn = getattr(prof, vf)
-                if not callable(fn):
-                    raise TypeError(f'Attribute "{vf}" on {type(prof).__name__} is not callable.')
-                return fn  # already bound
-
-            if callable(vf):
-                # If user passed a function defined on the class, bind it to this instance.
-                # If they passed a bound method, this is a no-op.
-                try:
-                    return MethodType(vf, prof)
-                except TypeError:
-                    # Fallback: some callables may not be descriptors; assume signature (r, **kwargs)
-                    return vf
-
-            raise TypeError("velocity_function must be None, a method name (str), or a callable.")
 
     def __str__(self):
         """
