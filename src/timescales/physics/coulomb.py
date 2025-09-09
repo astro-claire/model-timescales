@@ -10,7 +10,7 @@ from typing import Optional
 from astropy.units import Quantity
 from ..utils.units import as_quantity
 
-def coulomb_log_BH(r, sigma,*, 
+def coulomb_log_BH(M,r, sigma,*, 
                     Mstar: Optional[Quantity] =1*u.Msun,
                     m_units = u.Msun,
                     r_unit = u.pc, 
@@ -18,6 +18,8 @@ def coulomb_log_BH(r, sigma,*,
     """ 
     Calculate the coulomb log for a galactic center following Naoz & Sari review eqns 15-16
     ln(Lambda) = ln(bmax/bmin)= log (r sigma^2/2Gm)
+
+    Note that M is not used --just there so that both calculators have same args
     Returns
     -------
     (Quantity or Array) Coulomb Logarithm (log(Lambda))
@@ -27,7 +29,7 @@ def coulomb_log_BH(r, sigma,*,
     Mstar = as_quantity(Mstar, m_units)
     return np.log(r * sigma**2 / 2 / c.G / Mstar)
 
-def coulomb_log(M, *, 
+def coulomb_log(M,r, sigma, *, 
                 Mstar: Optional[Quantity] =1*u.Msun,
                 coulomb_little_lambda: Optional[float]  = 0.1,
                 m_units = u.Msun)->Quantity:
@@ -35,6 +37,8 @@ def coulomb_log(M, *,
     Calculate the coulomb log following Hamilton et  al 2018 framework / Binney and Tremaine
 
     log(Lambda) = log( lambda* N) 
+
+    Note that r and sigma are not used --just there so that both calculators have same args
 
     Returns
     -------
