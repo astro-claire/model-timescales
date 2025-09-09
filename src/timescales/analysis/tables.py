@@ -15,6 +15,7 @@ import warnings
 from ..physics.collisions import collision_timescale
 from ..physics.relaxation import relaxation_timescale
 from ..utils.filtering import filter_kwargs_for
+from .tools import select_coulomb_calculator
 
 # Type alias for the default, Pandas-free return type
 Row = Dict[str, Quantity]                      # a single row of quantities
@@ -235,7 +236,7 @@ def timescale_table(
 
     all_possible_kwargs = ensemble.timescales_kwargs | ensemble.profile_kwargs
 
-    fields = []
+    fields = ['Menc']
     if want_tcoll:
         fields.append("rho")
         fields.append("sigma")
@@ -249,6 +250,13 @@ def timescale_table(
         if "rho" not in fields:
             fields.append("rho")
         relaxation_kwargs, missing = filter_kwargs_for(relaxation_timescale, all_possible_kwargs)
+        want_coulomb = False
+        if "coulomb" in missing: # if coulomb logarithm is not provided, select a calculator for the table to use during the assembly
+            want_coulomb = True
+            del missing["coulomb"]
+            coulomb_func = select_coulomb_calculator(ensemble)
+            if verbose:
+                print("Selected coulomb function based on BH or not.")
         if verbose:
             print("will use defaults for ", missing)
 
@@ -286,6 +294,8 @@ def timescale_table(
                 #                                         sys_data["sigma"][j],
                 #                                         m_star))
             if want_trelax:
+                if want_coulomb:
+                    coulomb_log = coulomb_func(sys_data['Menc'][-1],sys_data['r'][-1],sys_data["sigma"][-1], Mstar = m_star)
                 out["t_relax"].append(relaxation_timescale(sys_data["sigma"][j],
                                                         sys_data["rho"][j],
                                                         mass = m_star,

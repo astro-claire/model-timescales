@@ -333,7 +333,7 @@ def generate_timescale_comparison(
                     out['t_ms'].append(t_ms)
                 else: 
                     shortest_name = "dummy"
-                    shortest_tscale = 1e50*u.yr
+                    shortest_tscale = 1e50*u.yr # should be too long to appear
                 if "t_relax" in include and sys_data["t_relax"][j]<shortest_tscale:
                     shortest_name = "t_relax"
                     shortest_tscale = sys_data["t_relax"][j]
