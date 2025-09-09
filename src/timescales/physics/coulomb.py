@@ -6,7 +6,7 @@ Functions for calculating the Coulomb logarithm
 import astropy.units as u 
 import astropy.constants as c 
 import numpy as np
-from typing import Float, Optional
+from typing import Optional
 from astropy.units import Quantity
 from ..utils.units import as_quantity
 
@@ -29,8 +29,8 @@ def coulomb_log_BH(r, sigma,*,
 
 def coulomb_log(M, *, 
                 Mstar: Optional[Quantity] =1*u.Msun,
-                coulomb_little_lambda: Optional[Float]  = 0.1,
-                m_units = u.Msun):
+                coulomb_little_lambda: Optional[float]  = 0.1,
+                m_units = u.Msun)->Quantity:
     """ 
     Calculate the coulomb log following Hamilton et  al 2018 framework / Binney and Tremaine
 
