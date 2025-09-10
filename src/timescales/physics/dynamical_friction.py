@@ -1,3 +1,4 @@
+#timescales/physics/dynamical_friction
 import numpy as np
 import astropy.units as u
 from astropy.units import Quantity
