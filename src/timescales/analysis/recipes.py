@@ -377,8 +377,11 @@ def per_system_comparison(table,ts1_name, operation,*,
         "system_id": [],  # -> list[str|int], fine to store as plain python scalars
         "condition": [],          # -> Quantity (length)
     }
+    as_df = False
+    if as_ =="pandas":
+        as_df = True 
     for sys_id in ids:
-        sys_data = get_system(table,sys_id)
+        sys_data = get_system(table,sys_id, as_df=as_df)
         if operation != 'true':
             if ts2_name != None: 
                 condition_value = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name])
