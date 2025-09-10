@@ -371,7 +371,7 @@ def per_system_comparison(table,ts1_name, operation,*,
     """
     check whether each system meets a certain criterion anywhere in the system
     """
-    N = distinct_count = len(set(table['system_id']))
+    N = len(set(table['system_id']))
     ids = list(range(N)) if system_ids is None else list(system_ids)
     out: Table = {
         "system_id": [],  # -> list[str|int], fine to store as plain python scalars
