@@ -11,7 +11,7 @@ import warnings
 from .tables import structural_table, timescale_table, get_system
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  # when you add it
 from ..utils.energy import escape_velocity
-
+from .tools import condition_test
 
 def collision_vs_main_sequence(
     ensemble, *,
@@ -351,6 +351,46 @@ def generate_timescale_comparison(
 # ("t_relax", "t_coll" ,"t_ms" , "massloss"),
 
     
+    if as_ == "dict":
+        return out
+
+    # Optional pandas return
+    try:
+        import pandas as pd  # local import to keep pandas optional
+    except Exception as e:
+        raise ImportError('pandas is required when as_="pandas". Install with `pip install pandas`.') from e
+
+    # Build a DataFrame without stripping units (object dtype for Quantity columns)
+    return pd.DataFrame(out)
+
+def per_system_comparison(table,ts1_name, operation,*,
+                        ts2_name = None,
+                        value = None,
+                        system_ids: Optional[Iterable[Union[int, str]]] = None,
+                        as_: Literal["dict", "pandas"] = "dict",):
+    """
+    check whether each system meets a certain criterion anywhere in the system
+    """
+    N = distinct_count = len(set(table['system_id']))
+    ids = list(range(N)) if system_ids is None else list(system_ids)
+    out: Table = {
+        "system_id": [],  # -> list[str|int], fine to store as plain python scalars
+        "condition": [],          # -> Quantity (length)
+    }
+    for sys_id in ids:
+        sys_data = get_system(table,sys_id)
+        if operation != 'true':
+            if ts2_name != None: 
+                condition_value = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name])
+            elif value != None: 
+                condition_value = condition_test(sys_data[ts1_name],operation,value = value)
+            else:
+                raise TypeError(str(operation)+" requested but no comarison ts or value given.")
+        elif operation== 'true':
+            condition_value = condition_test(sys_data[ts1_name],operation)
+        out["system_id"].append(sys_id)
+        out["condition"].append(condition_value)
+
     if as_ == "dict":
         return out
 

@@ -15,7 +15,7 @@ import warnings
 from ..physics.collisions import collision_timescale
 from ..physics.relaxation import relaxation_timescale
 from ..utils.filtering import filter_kwargs_for
-from .tools import select_coulomb_calculator
+from .tools import select_coulomb_calculator, get_system
 
 # Type alias for the default, Pandas-free return type
 Row = Dict[str, Quantity]                      # a single row of quantities
@@ -147,20 +147,6 @@ def structural_table(
 
     # Build a DataFrame without stripping units (object dtype for Quantity columns)
     return pd.DataFrame(out)
-
-def get_system(table, system_id, *, as_df=False):
-    """
-    Extract all rows for a specific system ID from a table.
-    """
-    if isinstance(table, dict):
-        return {
-            key: [val for sid, val in zip(table["system_id"], values) if sid == system_id]
-            for key, values in table.items()
-        }
-    elif as_df:
-        return table[table["system_id"] == system_id]
-    else:
-        raise TypeError("Table must be a dict or pandas.DataFrame")
 
 
 def timescale_table(
