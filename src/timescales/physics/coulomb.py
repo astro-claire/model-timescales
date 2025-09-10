@@ -1,4 +1,4 @@
-#src/timescales/physics.py 
+#src/timescales/physics/coulomb 
 """
 Functions for calculating the Coulomb logarithm
 
