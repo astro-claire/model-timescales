@@ -3,30 +3,55 @@ from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u 
 import astropy.constants as c
 import numpy as np
+import importlib.resources as ir
+
 from .registry import register_timescale
+from ..utils.units import as_quantity
 
 @register_timescale("t_int", aliases = ("interaction", "halo-merger","halo-interaction"))
-def get_tinteract(M,rho, z, halomass, v= 16.6 *u.km/u.s, N = 7, d = 10, cosmo = cosmo,fstar_DM=0.1,M_upper=10, fixed_N= True): 
+def interaction_timescale(M, R, z, halomass, cosmo,v= 16.6 *u.km/u.s, N = 7, d = 10,fstar_DM=0.1,M_upper=10, fixed_N= True): 
     """
     n sigma v calculation
-    d is unitless for conversion to in person 
+    d is unitless - comoving for conversion to physical 
     """
-    #first get n 
+    #make sure units are all good
     d = d * u.kpc / 0.71 * (1./(1+z))
-    f =  get_densityFraction(halomass,M_upper=M_upper)
+    v = as_quantity(v, u.km/u.s)
+    M = as_quantity(M, u.Msun)
+    halomass = as_quantity(halomass, u.Msun)
+    R = as_quantity(R, u.pc)
+    #first get n 
+    f =  get_densityFraction(halomass,M_upper=M_upper) # Get the fraction between halomass and M_upper* halomass according to the ST function
     if fixed_N:
         N=N
     else:
         N = get_N(M)
     stmasses = np.logspace(4,11,10000)
-    sigma_norm = normalization_offset[closest_idx(stmasses, halomass)][0]
-    n = N / (4./3. * np.pi * d**3) *f *sigma_norm
+    normalization_offset= get_normalization()
+    sigma_norm = normalization_offset[closest_idx(stmasses, halomass.to_value('Msun'))][0] #correct for over clustered box
+    n = N / (4./3. * np.pi * d**3) *f /sigma_norm
     #then get sigma 
-    r = get_rvirz(M, z,cosmo, fstar_DM= fstar_DM)+get_rvirz(halomass, z,cosmo, fstar_DM= fstar_DM)
+    r = R+get_rvirz(halomass, z,cosmo).to('pc')
     sigma = np.pi * r**2
     #finally, gamma
     gamma = n*sigma*v
     return (1./gamma)
+
+@register_timescale("t_neighbor",aliases=("neighbor-interaction","neighbor-merger"))
+def neighbor_merger_timescale(M,R,z,halomass,cosmo, v= 16.6 *u.km/u.s,fstar_DM=0.1,M_upper=10, fixed_N= True):
+    """ 
+    calculate the interaction timescale for the nearest neighbor using the simulation parameters from Williams + 25
+    """
+    result = interaction_timescale(M, R, z, halomass, cosmo,v= v, N =1, d = 1.5,fstar_DM=fstar_DM,M_upper=M_upper, fixed_N= fixed_N)
+    return result
+
+@register_timescale("t_local",aliases=("local-interaction","local-merger"))
+def local_merger_timescale(M,R,z,halomass,cosmo, v= 16.6 *u.km/u.s,fstar_DM=0.1,M_upper=10, fixed_N= True):
+    """ 
+    calculate the interaction timescale for the local environemntusing the simulation parameters from Williams + 25
+    """
+    result = interaction_timescale(M, R, z, halomass, cosmo,v= v, N =6, d = 10,fstar_DM=fstar_DM,M_upper=M_upper, fixed_N= fixed_N)
+    return result
 
 
 def closest(lst, K):     
@@ -36,13 +61,17 @@ def closest_idx(lst,K):
     return np.where(lst==closest(lst,K))[0]
 
 def get_STcounts():
-    stfunction17 = np.loadtxt('../cosmodata/numGreaterThanM_s8_17new.txt')
+    """
+    Get the Sheth & Tormen number counts from the data file
+    """
+    with ir.files("timescales.cosmodata").joinpath("numGreaterThanM_s8_17new.txt").open("r") as f:
+        stfunction17 = np.loadtxt(f)
     return stfunction17
 
-# stfunction17 = get_STcounts()
-# stmasses = np.logspace(4,11,10000)
-
 def get_densityFraction(M,  M_upper=10):
+    """
+    compute fraction of 
+    """
     stfunction17 = get_STcounts()
     stmasses = np.logspace(4, 11, 10000)
 
@@ -80,29 +109,29 @@ def get_delta(z,cosmo):
     d = cosmo.Om(z)-1
     return (18* np.pi **2 ) + (82* d ) - (39* d**2)
 
-def get_rvirz(M_dm, z,cosmo, fstar_DM = 0.1):
-
-    Mtot = Mstar + Mstar/fstar_DM
+def get_rvirz(M_DM, z,cosmo):
+    """
+    Virial radius of  DM halo that hosts it)
+    """
     om_z = cosmo.Om(z)
     deltac = get_delta(z,cosmo)
     h = (cosmo.H0/100).value
-    mterm = (Mtot/ (1e8 *h * u.Msun))**(1./3.)
+    mterm = (M_DM/ (1e8 *h * u.Msun))**(1./3.)
     cosmoterm = (cosmo.Om0 / om_z * deltac/(18*np.pi**2))**(-1/3.)
     zterm =((1+z)/10.)**(-1)
     return 0.784 * mterm * cosmoterm * zterm * h**(-1) * u.kpc
 
-def get_vcz(M,z,cosmo):
-    return np.sqrt(c.G * M / get_rvirz(M,z,cosmo)).cgs
-
-def get_tdynz(M,z,cosmo):
-    v = get_vcz(M,z,cosmo)
-    r = get_rvirz(M,z,cosmo)
-    return (r/v).to('Myr')
-
 def get_normalization():
-    print("Normalization conversion between sigma8 = 1.7 and 0.8")
-    stfunction = np.loadtxt('../cosmodata/numGreaterThanM_s8_08new.txt')
-    stfunction17 = np.loadtxt('../cosmodata/numGreaterThanM_s8_17new.txt')
+    """ 
+    Normalization conversion from sigma 8 = 1.7 to 0.8
+    """
+    # print("Normalization conversion between sigma8 = 1.7 and 0.8")
+    with ir.files("timescales.cosmodata").joinpath("numGreaterThanM_s8_17new.txt").open("r") as f:
+        stfunction17 = np.loadtxt(f)
+    with ir.files("timescales.cosmodata").joinpath("numGreaterThanM_s8_08new.txt").open("r") as f:
+        stfunction = np.loadtxt(f)
+    stfunction = np.array(stfunction)
+    stfunction17 = np.array(stfunction17)
     normalization_offset = stfunction17/stfunction
     return normalization_offset
 
