@@ -4,6 +4,7 @@ from . import dynamical_friction
 from . import collisions
 from . import relaxation
 from . import coulomb
+from . import halo_environment
 
 __all__ = [
     "stars",
@@ -11,4 +12,5 @@ __all__ = [
     "collisions",
     "relaxation",
     "coulomb",
+    "halo_environment"
 ]
