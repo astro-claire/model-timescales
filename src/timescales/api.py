@@ -1,6 +1,7 @@
 import astropy.units as u 
 from .sampling import _generate_radii
 from .factory import create_profile, available_profiles
+from .factoryimf import create_imf, available_imfs
 from typing import Dict, List, Optional, Callable, Union
 from types import MethodType
 import inspect
@@ -12,8 +13,10 @@ class TimescaleEnsemble:
                 densityModel = "powerLaw", 
                 Nsampling = 20, #these parameters determine the radii for each model's computations
                 r_min_log10 = -3,
+                imfModel = "salpeter",
                 profile_kwargs: Optional[Dict] = None, #dict containing any parameters necessary for computation of the density, such as pl index
                 timescales_kwargs: Optional[Dict] = None, #dict contatining any parameters necessary for computation of the timescales, such as mass of stars in cluster
+                imf_kwargs: Optional[Dict] = None, #dict containing optional parameters for IMF
                 alpha = None, # deprecated
                 Mstar = None, #deprecated
                 e = None #deprecated
@@ -61,6 +64,31 @@ class TimescaleEnsemble:
         for key, value in self.timescales_kwargs.items():
             setattr(self, key, value)
 
+
+        #Stellar IMF: 
+        if imf_kwargs:
+            self.imf_kwargs = dict(imf_kwargs)
+            self.imfModel = imfModel
+            print("Using parameters for IMF")
+            for key in self.imf_kwargs.keys():
+                print(str(key)+"=" +str(self.imf_kwargs[key]))
+        else:
+            print("No imf arguments given. Defaulting to {imfModel}.")
+            self.imfModel = imfModel
+            self.imf_kwargs= {}
+        for key, value in self.imf_kwargs.items():
+            setattr(self, key, value)
+        try:
+            self.imfimf = create_imf(
+                self.imfModel,
+                **self.imf_kwargs,
+            )
+        except KeyError as er:
+            # Helpful error if someone passes an unknown model name
+            raise ValueError(
+                f'Unknown imf "{self.imf_kwargs["imf"]}". '
+                f"Available: {', '.join(available_imfs())}"
+            ) from er
 
         self.radii = _generate_radii(grid,self.Nsystems, Nsampling = Nsampling, rMin = r_min_log10)
 
