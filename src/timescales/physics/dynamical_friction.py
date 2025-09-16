@@ -6,8 +6,8 @@ import astropy.constants as c
 from ..utils import as_quantity
 from .registry import register_timescale
 
-@register_timescale("t_df", aliases=("dynamical-friction",))
-def dynamical_friction_timescale(M_cl,M_BH,r_h,*, 
+@register_timescale("t_df_b", aliases=("bulk_dynamical-friction",))
+def bulk_dynamical_friction_timescale(M_cl,M_BH,r_h,*, 
                             mass_units = u.Msun,
                             radius_units = u.pc):
     """
@@ -23,3 +23,4 @@ def dynamical_friction_timescale(M_cl,M_BH,r_h,*,
     M_BH = as_quantity(M_BH,mass_units)
     r_h = as_quantity(r_h, radius_units)
     return 20 * u.Myr * (20.*u.Msun/ M_BH) * (M_cl/ (1e5 *u.Msun))**0.5 * (r_h/(1*u.pc))**(3./2.)
+
