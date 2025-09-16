@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system, condition_test
+from .recipes import per_system_comparison
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
 from ..utils.energy import escape_velocity
@@ -33,7 +34,8 @@ def create_dynamical_model(ensemble,*,
         "kinetic": list(ensemble.grid['K']),
         "potential": list(ensemble.grid['U']),
         "t_ms": [],
-        "t_merger":[]
+        "t_merger":[], 
+        "coll_occur_within_tmin": [],
         }
 
     #set up kwargs for the timescale functions
@@ -67,9 +69,9 @@ def create_dynamical_model(ensemble,*,
         #find out what's the limiting time for the system:
         minimum_disruption_time = min([t_merger,t_ms,t_universe])
 
+        comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
+        out['coll_occur_within_tmin'] = comparison['condition']
         
-
-
 
     if as_ == "dict":
         return out
