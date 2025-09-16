@@ -8,7 +8,8 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import astropy.units as u
 from astropy.units import Quantity
 import warnings
-from .tables import structural_table, timescale_table, get_system
+from .tables import structural_table, timescale_table
+from .tools import get_system
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  # when you add it
 from ..utils.energy import escape_velocity
 from .tools import condition_test
@@ -371,8 +372,8 @@ def per_system_comparison(table,ts1_name, operation,*,
     """
     check whether each system meets a certain criterion anywhere in the system
     """
-    N = len(set(table['system_id']))
-    ids = list(range(N)) if system_ids is None else list(system_ids)
+    # N = len(set(table['system_id']))
+    # ids = list(range(N)) if system_ids is None else list(system_ids)
     out: Table = {
         "system_id": [],  # -> list[str|int], fine to store as plain python scalars
         "condition": [],          # -> Quantity (length)
@@ -380,6 +381,11 @@ def per_system_comparison(table,ts1_name, operation,*,
     as_df = False
     if as_ =="pandas":
         as_df = True 
+        N  = len(set(table['system_id']))
+        ids = pandas.unique(table["system_id"])
+    else:
+        N = len(set(table['system_id']))
+        ids = list(range(N)) if system_ids is None else list(system_ids)
     for sys_id in ids:
         sys_data = get_system(table,sys_id, as_df=as_df)
         if operation != 'true':
