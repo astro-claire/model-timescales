@@ -14,6 +14,7 @@ from astropy.units import Quantity
 import warnings
 from ..physics.collisions import collision_timescale
 from ..physics.relaxation import relaxation_timescale
+from ..physics.dynamical_friction import dynamical_friction_timescale
 from ..utils.filtering import filter_kwargs_for
 from .tools import select_coulomb_calculator, get_system
 
@@ -219,6 +220,7 @@ def timescale_table(
 
     want_tcoll = "t_coll" in include
     want_trelax = "t_relax" in include
+    want_tdf = "t_df" in include
 
     all_possible_kwargs = ensemble.timescales_kwargs | ensemble.profile_kwargs
 
@@ -245,6 +247,22 @@ def timescale_table(
                 print("Selected coulomb function based on BH or not.")
         if verbose:
             print("will use defaults for ", missing)
+    if want_tdf:
+        if "sigma" not in fields:
+            fields.append("sigma")
+        if "rho" not in fields:
+            fields.append("rho")
+        dynfriction_kwargs, missing = filter_kwargs_for(dynamical_friction_timescale, all_possible_kwargs)
+        want_coulomb = False
+        if "coulomb" in missing: # if coulomb logarithm is not provided, select a calculator for the table to use during the assembly
+            want_coulomb = True
+            del missing["coulomb"]
+            coulomb_func = select_coulomb_calculator(ensemble)
+            if verbose:
+                print("Selected coulomb function based on BH or not.")
+        if verbose:
+            print("will use defaults for ", missing)
+
 
     fields_table = structural_table(ensemble, 
                                     fields= fields,
@@ -262,6 +280,8 @@ def timescale_table(
         out["t_coll"]= []
     if want_trelax:
         out["t_relax"] = []
+    if want_tdf: 
+        out["t_df"] = []
 
 
     for sys_id, r in zip(ids, ensemble.radii):
@@ -275,19 +295,24 @@ def timescale_table(
                                                     sys_data["sigma"][j],
                                                     # m_star,
                                                     **collision_kwargs))
-                # else:
-                #     out["t_coll"].append(collision_timescale(sys_data["n"][j],
-                #                                         sys_data["sigma"][j],
-                #                                         m_star))
             if want_trelax:
                 if want_coulomb:
                     coulomb_log = coulomb_func(sys_data['Menc'][-1],sys_data['r'][-1],sys_data["sigma"][-1], Mstar = m_star)
+                    relaxation_kwargs['coulomb']= coulomb_log
                 out["t_relax"].append(relaxation_timescale(sys_data["sigma"][j],
                                                         sys_data["rho"][j],
                                                         mass = m_star,
                                                         **relaxation_kwargs
                                                         ))
-    
+            if want_tdf:
+                if want_coulomb:
+                    coulomb_log = coulomb_func(sys_data['Menc'][-1],sys_data['r'][-1],sys_data["sigma"][-1], Mstar = m_star)
+                    dynfriction_kwargs['coulomb'] = coulomb_log
+                out["t_df"].append(dynamical_friction_timescale(sys_data["sigma"][j],
+                                                        sys_data["rho"][j],
+                                                        **dynfriction_kwargs
+                                                        ))
+
     if as_ == "dict":
         return out
 
