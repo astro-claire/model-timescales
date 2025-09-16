@@ -12,7 +12,7 @@ def bulk_dynamical_friction_timescale(M_cl,M_BH,r_h,*,
                             mass_units = u.Msun,
                             radius_units = u.pc):
     """
-    Calculate the dynamical friction timescale (Chandrasekhar 1943 timescale, quoted in Fragione & Rasio 2023)\
+    Calculate the dynamical friction timescale (Chandrasekhar 1943 timescale, quoted in Fragione & Rasio 2023)
     
     Parameters
     ----------
@@ -25,8 +25,8 @@ def bulk_dynamical_friction_timescale(M_cl,M_BH,r_h,*,
     r_h = as_quantity(r_h, radius_units)
     return 20 * u.Myr * (20.*u.Msun/ M_BH) * (M_cl/ (1e5 *u.Msun))**0.5 * (r_h/(1*u.pc))**(3./2.)
 
-@register_timescale("t_df", aliases = ("dynamical_friction"))
-def dynamical_friction_timescale(v, rho, mass,*,
+@register_timescale("t_df", aliases = ("dynamical_friction","local_dynamical_friction"))
+def dynamical_friction_timescale(v, rho,*,
                                     M_obj = 10*u.Msun,
                                     Mstar = 1 * u.Msun,
                                     coulomb=10, 
@@ -38,6 +38,6 @@ def dynamical_friction_timescale(v, rho, mass,*,
     """
     M_obj = as_quantity(M_obj, mass_unit)
     Mstar = as_quantity(Mstar, mass_unit)
-    massratio = Mstar_cluster/M_obj
-    t_relax = relaxation_timescale(v,rho, mass, coulomb=10, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun)
+    massratio = Mstar/M_obj
+    t_relax = relaxation_timescale(v,rho, Mstar, coulomb=10, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun)
     return t_relax * massratio
