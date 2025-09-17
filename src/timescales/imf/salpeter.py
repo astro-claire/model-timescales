@@ -92,3 +92,65 @@ class salpeterIMF(imfBase):
         N_tot = integral(self.Mmin, self.Mmax)
 
         return (N_range / N_tot).value
+
+    def number_fraction(self, M1: Quantity, M2: Quantity) -> float:
+        """
+        Fraction of *stars by number* in [M1, M2] relative to the total IMF.
+
+        Uses dN/dM ∝ M^{-alpha}. The normalization cancels in the ratio.
+
+        Returns
+        -------
+        float
+            Dimensionless fraction in [0, 1].
+        """
+        alpha = self.alpha
+        M1, M2 = M1.to(self.Mmin.unit), M2.to(self.Mmin.unit)
+        # ensure ordered and clipped to support bounds
+        lo = np.maximum(np.minimum(M1, M2), self.Mmin)
+        hi = np.minimum(np.maximum(M1, M2), self.Mmax)
+        if hi <= lo:
+            return 0.0
+
+        # ∫ M^{-alpha} dM = (M^{1-α})/(1-α), unless 1-α≈0 → log
+        e_num = 1.0 - alpha
+
+        def I_num(a: Quantity, b: Quantity) -> Quantity:
+            if np.isclose(e_num, 0.0, atol=1e-12):
+                return np.log(b / a)
+            return (b**e_num - a**e_num) / e_num
+
+        N_range = I_num(lo, hi)
+        N_tot   = I_num(self.Mmin, self.Mmax)
+        return (N_range / N_tot).to_value(u.one)
+        
+    def mass_fraction(self, M1: Quantity, M2: Quantity) -> float:
+        """
+        Fraction of *total stellar mass* in [M1, M2] relative to the total IMF mass.
+
+        Uses M * dN/dM ∝ M^{1-α}. The normalization cancels in the ratio.
+
+        Returns
+        -------
+        float
+            Dimensionless fraction in [0, 1].
+        """
+        alpha = self.alpha
+        M1, M2 = M1.to(self.Mmin.unit), M2.to(self.Mmin.unit)
+        # ensure ordered and clipped to support bounds
+        lo = np.maximum(np.minimum(M1, M2), self.Mmin)
+        hi = np.minimum(np.maximum(M1, M2), self.Mmax)
+        if hi <= lo:
+            return 0.0
+
+        # ∫ M^{1-α} dM = (M^{2-α})/(2-α), unless 2-α≈0 → log
+        e_mass = 2.0 - alpha
+
+        def I_mass(a: Quantity, b: Quantity) -> Quantity:
+            if np.isclose(e_mass, 0.0, atol=1e-12):
+                return np.log(b / a)
+            return (b**e_mass - a**e_mass) / e_mass
+
+        M_range = I_mass(lo, hi)
+        M_tot   = I_mass(self.Mmin, self.Mmax)
+        return (M_range / M_tot).to_value(u.one)
