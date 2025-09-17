@@ -87,6 +87,25 @@ class PowerLawProfile(ProfileBase):
 
         return M
 
+    def dMencldR(self, r: Quantity)-> Quantity:
+        """
+        derivative of enclosed mass with respect to r
+        
+        dM(<r)/dr = 4π ρ0 r0^α [ (r^(2-α) - r_min^(2-α)) ]  (α ≠ 3)
+        """
+        r = as_quantity(r, self.r0.unit)
+        r_eff = np.maximum(r, self.r_min)  # avoid log of <1 if you prefer; or treat piecewise
+
+        prefac = 4 * np.pi * self.rho0 * (self.r0 ** self.alpha)
+
+        # if np.isclose(self.alpha, 3.0, atol=1e-12):
+        #     if np.any(self.r_min <= 0 * self.r0.unit):
+        #         raise ValueError("α=3 requires r_min > 0.")
+        #     M = (prefac * np.log(r_eff / self.r_min)).to(u.Msun)
+        # else:
+        term = (r_eff ** (2.0 - self.alpha)) - (self.r_min ** (2.0 - self.alpha))
+        M = (prefac * term).to(u.Msun/u.pc)
+
     def velocity_dispersion(self, r: Quantity) -> Quantity:
         """
         Calculate the velocity dispersion for a power law system (no point mass/black hole)
