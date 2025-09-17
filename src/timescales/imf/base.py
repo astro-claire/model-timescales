@@ -33,3 +33,6 @@ class imfBase(ABC):
             dN/dM (integrate to get total mass)
         """
         raise NotImplementedError
+
+    def number_fraction(self):
+        raise NotImplementedError
