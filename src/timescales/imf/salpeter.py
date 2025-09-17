@@ -6,7 +6,7 @@ from astropy.units import Quantity
 from astropy import constants as const
 
 from .base import imfBase
-from ..factoryimf import register_imf
+from .registry import register_imf
 from ..utils.units import as_quantity  # your helper for coercion
 
 

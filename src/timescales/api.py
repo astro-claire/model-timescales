@@ -1,7 +1,7 @@
 import astropy.units as u 
 from .sampling import _generate_radii
 from .factory import create_profile, available_profiles
-from .factoryimf import create_imf, available_imfs
+from .imf.registry import create_imf, available_imfs
 from typing import Dict, List, Optional, Callable, Union
 from types import MethodType
 import inspect
