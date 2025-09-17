@@ -73,7 +73,7 @@ class TimescaleEnsemble:
             for key in self.imf_kwargs.keys():
                 print(str(key)+"=" +str(self.imf_kwargs[key]))
         else:
-            print("No imf arguments given. Defaulting to {imfModel}.")
+            print(f"No imf arguments given. Defaulting to '{imfModel}'.")
             self.imfModel = imfModel
             self.imf_kwargs= {}
         for key, value in self.imf_kwargs.items():
@@ -86,7 +86,7 @@ class TimescaleEnsemble:
         except KeyError as er:
             # Helpful error if someone passes an unknown model name
             raise ValueError(
-                f'Unknown imf "{self.imf_kwargs["imf"]}". '
+                f'Unknown imf "{self.imfModel}". '
                 f"Available: {', '.join(available_imfs())}"
             ) from er
 
