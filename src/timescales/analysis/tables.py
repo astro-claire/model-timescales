@@ -79,6 +79,7 @@ def structural_table(
     want_rho = "rho" in fields or include_number_density
     want_sigma = "sigma" in fields
     want_Menc = "Menc" in fields
+    want_MencdR = "dMencdR" in fields
 
     # Decide how to fetch fields: prefer precomputed lists on the ensemble, else use profiles
     has_attr = lambda name: hasattr(ensemble, name) and len(getattr(ensemble, name)) == N
@@ -100,6 +101,8 @@ def structural_table(
         out["sigma"] = []
     if "Menc" in fields:
         out["Menc"] = []
+    if "dMencdR" in fields:
+        out["dMencdR"] = []
     if include_number_density:
         if ensemble.Mstar is None:
             raise ValueError("m_star is required when include_number_density=True.")
@@ -115,10 +118,12 @@ def structural_table(
             rho_i = prof.density(r) if want_rho else None
             sigma_i = prof.velocity_dispersion(r) if want_sigma else None
             Menc_i = prof.enclosed_mass(r) if want_Menc else None
+            dMenc_i = prof.dMencldR(r) if want_MencdR else None
         else:
             rho_i = ensemble.rho[ids.index(sys_id)] if want_rho else None
             sigma_i = ensemble.sigma[ids.index(sys_id)] if want_sigma else None
             Menc_i = ensemble.Menc[ids.index(sys_id)] if want_Menc else None
+            dMenc_i = ensemble.dMencldR[ids.index(sys_id)] if want_MencdR else None
 
         # Append one row per radius for this system
         # (r is a 1D Quantity array; index across it)
@@ -131,6 +136,8 @@ def structural_table(
                 out["sigma"].append(sigma_i[j])        # type: ignore[index]
             if "Menc" in fields:
                 out["Menc"].append(Menc_i[j])          # type: ignore[index]
+            if "dMencdR" in fields:
+                out["dMencdR"].append(dMenc_i[j])          # type: ignore[index]            
             if include_number_density:
                 # Use rho if we have it already; otherwise compute just-in-time
                 rho_val = rho_i[j] if want_rho else ensemble.profiles[ids.index(sys_id)].density(r[j])

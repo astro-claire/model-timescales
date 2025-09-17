@@ -125,20 +125,23 @@ class TimescaleEnsemble:
         # 3) Compute structural fields per system (rho, Menc, sigma) now (eager)
         self.rho = []
         self.Menc = []
+        self.dMencldR = []
         self.sigma = []
         self.n = []
         for i, prof in enumerate(self.profiles):
             r_i = self.radii[i]
             rho_i = prof.density(r_i)
             Menc_i = prof.enclosed_mass(r_i)
+            dMenc_i = prof.dMencldR(r_i)
             sigma_i = prof.velocity_dispersion(r_i)
 
             self.rho.append(rho_i)
             self.Menc.append(Menc_i)
+            self.dMencldR.append(dMenc_i)
             self.sigma.append(sigma_i)
             # Generic number density (TODO allow for other ways to calcualte this)
             self.n.append(rho_i / self.Mstar)
-            
+
 
     def __str__(self):
         """
