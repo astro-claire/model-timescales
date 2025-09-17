@@ -79,7 +79,7 @@ class TimescaleEnsemble:
         for key, value in self.imf_kwargs.items():
             setattr(self, key, value)
         try:
-            self.imfimf = create_imf(
+            self.imf = create_imf(
                 self.imfModel,
                 **self.imf_kwargs,
             )
