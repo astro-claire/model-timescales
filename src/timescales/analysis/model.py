@@ -3,6 +3,7 @@ Model for each system!
 """
 
 from __future__ import annotations
+import numpy as np
 import astropy.units as u
 from astropy.units import Quantity
 from astropy.cosmology import FlatLambdaCDM
@@ -10,20 +11,25 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system, condition_test
-from .recipes import per_system_comparison
+from .recipes import per_system_comparison, destructive_colllision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
 from ..utils.energy import escape_velocity
 from ..utils.filtering import filter_kwargs_for
 
 def create_dynamical_model(ensemble,*,
+                        deltamstar = 0.5*u.Msun,
                         as_: Literal["dict", "pandas"] = "dict",
                         verbose = True
                             ):
     """ 
     Create the dynamical model for the systems 
+        sum_1^N N(r) * 1/M * fIMF_M * dMdr* delta r
     """
+    #get per radius information
     timescales_by_radius = timescale_table(ensemble, verbose = verbose)
+    denclosedmass_byradius = structural_table(ensemble, fields = ("dMencdR"))
+    massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
 
     #initialize a table of outputs. One row for each system (bulk)
     out = Table = {
@@ -56,7 +62,7 @@ def create_dynamical_model(ensemble,*,
 
     #quantities that only need to be calculated once
     t_universe = all_possible_kwargs['cosmology'].age(0).to('yr')
-
+    minimum_disruption_time = []
     #now, iterate through all the systems to create the minimum disruption timescales
     for sys_id in range(ensemble.Nsystems):
         #calculate disruptive timescales:
@@ -67,13 +73,49 @@ def create_dynamical_model(ensemble,*,
         t_merger = _get_t_merger(all_possible_kwargs,sys_id, ensemble, verbose = verbose).to('yr')
         out['t_merger'].append(t_merger)
         #find out what's the limiting time for the system:
-        minimum_disruption_time = min([t_merger,t_ms,t_universe])
-
+        minimum_disruption_time.append(min([t_merger,t_ms,t_universe]))
     comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
     out['coll_occur_within_tmin'] = comparison['condition']
 
-    
+    coll_sys_id = np.where(out['coll_occur_within_tmin'])[0]
+    print("collisions occur in "+str(len(coll_sys_id))+" systems")
+    out['N_collisions'] = [0]* ensemble.Nsystems
+    out['N_collisions_massloss']= [0]* ensemble.Nsystems
+    f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
 
+    #now we need to integrate how many  collisions occured in each system
+    if len(coll_sys_id)>1:
+        for sys_id in coll_sys_id:
+            #get all the necessary data for this system
+            sys_data = get_system(timescales_by_radius,sys_id)
+            sys_dmdr = get_system(denclosedmass_byradius, sys_id)
+            sys_massloss = get_system(massloss_byradius, sys_id)
+            t_disrupt = minimum_disruption_time[sys_id].to_value('yr')
+            #the next line calculates the number of collisions per star at each radius
+            Ncol_M_r= [t_disrupt/i.to_value(u.yr) for i in sys_data['t_coll']]
+            #assemble the summation
+            Ncol_M_r = np.array(Ncol_M_r) 
+            col_idx = np.where(Ncol_M_r>1)[0]
+            dMdr = sys_dmdr['dMencdR'] * (u.Msun / u.pc)
+            summation_component = Ncol_M_r * dMdr * 1.0/ensemble.Mstar * f_IMF_m
+            summation_component = summation_component[col_idx]
+            Ncol_M_r = Ncol_M_r[col_idx]
+            radii = sys_data['r'] * u.pc
+            radii = radii[col_idx]
+            dr = np.diff(radii)
+            # perform the summation
+            total_N_collisions = np.sum(summation_component[:-1]*dr)
+            out['N_collisions'][sys_id] = total_N_collisions.value
+            #Now look at the mass loss 
+            massloss = np.array(sys_massloss['massloss'])
+            ml_idx = np.where(massloss[col_idx]==1)[0]
+            if len(ml_idx)>1:
+                summation_component = summation_component[ml_idx]
+                radii = radii[ml_idx]
+                dr = np.diff(radii)
+                num_ML_collisions = np.sum(summation_component[:-1]*dr)
+                out['N_collisions_massloss'][sys_id] = num_ML_collisions.value
+    print(out['N_collisions_massloss'])
 
 
     if as_ == "dict":
