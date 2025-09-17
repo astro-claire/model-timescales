@@ -90,7 +90,7 @@ class PowerLawProfile(ProfileBase):
     def dMencldR(self, r: Quantity)-> Quantity:
         """
         derivative of enclosed mass with respect to r
-        
+
         dM(<r)/dr = 4π ρ0 r0^α [ (r^(2-α) - r_min^(2-α)) ]  (α ≠ 3)
         """
         r = as_quantity(r, self.r0.unit)
@@ -105,6 +105,7 @@ class PowerLawProfile(ProfileBase):
         # else:
         term = (r_eff ** (2.0 - self.alpha)) - (self.r_min ** (2.0 - self.alpha))
         M = (prefac * term).to(u.Msun/u.pc)
+        return M
 
     def velocity_dispersion(self, r: Quantity) -> Quantity:
         """

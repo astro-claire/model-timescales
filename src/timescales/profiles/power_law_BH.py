@@ -92,7 +92,7 @@ class PowerLawProfileBH(ProfileBase):
             M = (prefac * term / denom).to(u.Msun)
 
         return M
-        
+
     def dMencldR(self, r: Quantity)-> Quantity:
         """
         derivative of enclosed mass with respect to r
@@ -111,6 +111,7 @@ class PowerLawProfileBH(ProfileBase):
         # else:
         term = (r_eff ** (2.0 - self.alpha)) - (self.r_min ** (2.0 - self.alpha))
         M = (prefac * term).to(u.Msun/u.pc)
+        return M
 
     def velocity_dispersion(self, r: Quantity) -> Quantity:
         """
