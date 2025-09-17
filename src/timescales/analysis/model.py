@@ -57,7 +57,7 @@ def create_dynamical_model(ensemble,*,
     #quantities that only need to be calculated once
     t_universe = all_possible_kwargs['cosmology'].age(0).to('yr')
 
-    #now, iterate through all the systems and create the model
+    #now, iterate through all the systems to create the minimum disruption timescales
     for sys_id in range(ensemble.Nsystems):
         #calculate disruptive timescales:
         #First, main sequence
@@ -69,9 +69,12 @@ def create_dynamical_model(ensemble,*,
         #find out what's the limiting time for the system:
         minimum_disruption_time = min([t_merger,t_ms,t_universe])
 
-        comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
-        out['coll_occur_within_tmin'] = comparison['condition']
-        
+    comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
+    out['coll_occur_within_tmin'] = comparison['condition']
+
+    
+
+
 
     if as_ == "dict":
         return out
