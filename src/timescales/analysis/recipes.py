@@ -392,9 +392,12 @@ def per_system_comparison(table,ts1_name, operation,*,
             if ts2_name != None: 
                 condition_value = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name])
             elif value != None: 
-                condition_value = condition_test(sys_data[ts1_name],operation,value = value)
+                try:
+                    condition_value = condition_test(sys_data[ts1_name],operation,value = value)
+                except TypeError:
+                    condition_value = condition_test(sys_data[ts1_name],operation,value = value[sys_id])
             else:
-                raise TypeError(str(operation)+" requested but no comarison ts or value given.")
+                raise TypeError(str(operation)+" requested but no comparison ts or value given.")
         elif operation== 'true':
             condition_value = condition_test(sys_data[ts1_name],operation)
         out["system_id"].append(sys_id)
