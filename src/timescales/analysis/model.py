@@ -27,13 +27,12 @@ def create_dynamical_model(ensemble,*,
         sum_1^N N(r) * 1/M * fIMF_M * dMdr* delta r
     """
     #get per radius information
-    timescales_by_radius = timescale_table(ensemble, verbose = verbose)
-    denclosedmass_byradius = structural_table(ensemble, fields = ("dMencdR"))
+    timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
+    denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR"))
     massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
 
     #initialize a table of outputs. One row for each system (bulk)
     out = Table = {
-        "system_id": [],
         "mass": list(ensemble.grid['M']),
         "radius": list(ensemble.grid['R']),
         "velocity": list(ensemble.grid['V']),
@@ -41,7 +40,6 @@ def create_dynamical_model(ensemble,*,
         "potential": list(ensemble.grid['U']),
         "t_ms": [],
         "t_merger":[], 
-        "coll_occur_within_tmin": [],
         }
 
     #set up kwargs for the timescale functions
@@ -62,8 +60,10 @@ def create_dynamical_model(ensemble,*,
 
     #quantities that only need to be calculated once
     t_universe = all_possible_kwargs['cosmology'].age(0).to('yr')
-    minimum_disruption_time = []
+    f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
+
     #now, iterate through all the systems to create the minimum disruption timescales
+    minimum_disruption_time = []
     for sys_id in range(ensemble.Nsystems):
         #calculate disruptive timescales:
         #First, main sequence
@@ -81,7 +81,6 @@ def create_dynamical_model(ensemble,*,
     print("collisions occur in "+str(len(coll_sys_id))+" systems")
     out['N_collisions'] = [0]* ensemble.Nsystems
     out['N_collisions_massloss']= [0]* ensemble.Nsystems
-    f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
 
     #now we need to integrate how many  collisions occured in each system
     if len(coll_sys_id)>1:
@@ -115,8 +114,40 @@ def create_dynamical_model(ensemble,*,
                 dr = np.diff(radii)
                 num_ML_collisions = np.sum(summation_component[:-1]*dr)
                 out['N_collisions_massloss'][sys_id] = num_ML_collisions.value
-    print(out['N_collisions_massloss'])
 
+    #now, let's investigate the dynamical friction
+    #The minimum disruption time is different because we need to use the massive star's timescale instead
+    if 'M_obj' in ensemble.timescales_kwargs.keys():
+        M_obj = ensemble.timescales_kwargs['M_obj']
+    else:
+        print("using default M_obj: 10 Msun")
+        M_obj= 10.0* u.Msun
+    f_IMF_Mobj = ensemble.imf.mass_fraction(M_obj-deltamstar,M_obj + deltamstar )
+
+    #Now we have the mass & mass fraction of the massive stars. Let's do the minimum calculation
+    minimum_disruption_time = []
+    for sys_id in range(ensemble.Nsystems):
+        #calculate disruptive timescales:
+        #First, main sequence
+        t_ms = main_sequence_lifetime_approximation(M_obj).to('yr')
+        #next, interaction timescale (don't need to recalculate)
+        t_merger = out["t_merger"][sys_id]
+        #find out what's the limiting time for the system:
+        minimum_disruption_time.append(min([t_merger,t_ms,t_universe]))
+    comparison =per_system_comparison(timescales_by_radius, 't_df', 'lt', value = minimum_disruption_time, return_where =True)
+    out['df_occur_within_tmin'] = comparison['condition']
+
+    df_sys_id = np.where(out['df_occur_within_tmin'])[0]
+    radius_wheredf = comparison["where_true"]
+    print("mass segregation occurs in "+str(len(df_sys_id))+" systems")
+    if len(df_sys_id)>1:
+        for sys_id in df_sys_id:
+            sys_dmdr = get_system(denclosedmass_byradius, sys_id)
+            final_idx = radius_wheredf[sys_id][-1]
+            Menc_id = sys_dmdr["Menc"][final_idx]
+            # the next line counts the number of 
+            Nms = Menc_id * f_IMF_Mobj/M_obj
+    
 
     if as_ == "dict":
         return out
@@ -131,7 +162,7 @@ def create_dynamical_model(ensemble,*,
     return pd.DataFrame(out)
 
 def _get_t_merger(all_possible_kwargs, sys_id, ensemble, verbose = True):
-        halomass = ensemble.grid['M'][sys_id] /10
+        halomass = max([ensemble.grid['M'][sys_id] /10, 1e4 * u.Msun])
         cosmo = all_possible_kwargs['cosmology']
         z = all_possible_kwargs['redshift']
         if all_possible_kwargs['int_type'] =="neighbor":
