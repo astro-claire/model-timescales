@@ -368,6 +368,7 @@ def per_system_comparison(table,ts1_name, operation,*,
                         ts2_name = None,
                         value = None,
                         system_ids: Optional[Iterable[Union[int, str]]] = None,
+                        return_where: Optional[bool]=False,
                         as_: Literal["dict", "pandas"] = "dict",):
     """
     check whether each system meets a certain criterion anywhere in the system
@@ -386,22 +387,42 @@ def per_system_comparison(table,ts1_name, operation,*,
     else:
         N = len(set(table['system_id']))
         ids = list(range(N)) if system_ids is None else list(system_ids)
-    for sys_id in ids:
-        sys_data = get_system(table,sys_id, as_df=as_df)
-        if operation != 'true':
-            if ts2_name != None: 
-                condition_value = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name])
-            elif value != None: 
-                try:
-                    condition_value = condition_test(sys_data[ts1_name],operation,value = value)
-                except TypeError:
-                    condition_value = condition_test(sys_data[ts1_name],operation,value = value[sys_id])
-            else:
-                raise TypeError(str(operation)+" requested but no comparison ts or value given.")
-        elif operation== 'true':
-            condition_value = condition_test(sys_data[ts1_name],operation)
-        out["system_id"].append(sys_id)
-        out["condition"].append(condition_value)
+    if return_where == True:
+        out["where_true"]= []
+        for sys_id in ids:
+            sys_data = get_system(table,sys_id, as_df=as_df)
+            if operation != 'true':
+                if ts2_name != None: 
+                    condition_value, where = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name], return_where=True)
+                elif value != None: 
+                    try:
+                        condition_value, where = condition_test(sys_data[ts1_name],operation,value = value,return_where=True)
+                    except TypeError:
+                        condition_value, where = condition_test(sys_data[ts1_name],operation,value = value[sys_id],return_where=True)
+                else:
+                    raise TypeError(str(operation)+" requested but no comparison ts or value given.")
+            elif operation== 'true':
+                condition_value = condition_test(sys_data[ts1_name],operation)
+            out["system_id"].append(sys_id)
+            out["condition"].append(condition_value)
+            out["where_true"].append(where)
+    else:
+        for sys_id in ids:
+            sys_data = get_system(table,sys_id, as_df=as_df)
+            if operation != 'true':
+                if ts2_name != None: 
+                    condition_value = condition_test(sys_data[ts1_name],operation,ts2 = sys_data[ts2_name])
+                elif value != None: 
+                    try:
+                        condition_value = condition_test(sys_data[ts1_name],operation,value = value)
+                    except TypeError:
+                        condition_value = condition_test(sys_data[ts1_name],operation,value = value[sys_id])
+                else:
+                    raise TypeError(str(operation)+" requested but no comparison ts or value given.")
+            elif operation== 'true':
+                condition_value = condition_test(sys_data[ts1_name],operation)
+            out["system_id"].append(sys_id)
+            out["condition"].append(condition_value)
 
     if as_ == "dict":
         return out

@@ -24,7 +24,8 @@ def condition_test(ts1,
                             operation: str,*, 
                             ts2: Optional[Quantity]= None, 
                             value: Optional[Quantity]=None, 
-                            verbose: Optional[bool] = True
+                            verbose: Optional[bool] = True, 
+                            return_where: Optional[bool] = False,
                             ):
     """ 
     Check if a condition is met
@@ -74,8 +75,10 @@ def condition_test(ts1,
         raise NotImplementedError("Unknown operation. Options are 'eq' (equal to), 'lt' (less than), 'gt' (greater than), or 'true'.")
     if np.sum(values)>1: 
         result  = True
-    
-    return result
+    if return_where==True: 
+        return result, np.where(values==True)[0]
+    else:
+        return result
 
 
 def get_system(table, system_id, *, as_df=False):
