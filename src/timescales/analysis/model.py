@@ -14,6 +14,7 @@ from .tools import get_system, condition_test
 from .recipes import per_system_comparison, destructive_colllision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
+from ..physics.collisions import collision_timescale
 from ..utils.energy import escape_velocity
 from ..utils.filtering import filter_kwargs_for
 
@@ -28,7 +29,7 @@ def create_dynamical_model(ensemble,*,
     """
     #get per radius information
     timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
-    denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR"))
+    denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
     massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
 
     #initialize a table of outputs. One row for each system (bulk)
@@ -138,6 +139,7 @@ def create_dynamical_model(ensemble,*,
     out['df_occur_within_tmin'] = comparison['condition']
 
     df_sys_id = np.where(out['df_occur_within_tmin'])[0]
+    out['t_coll_massive'] = [0]*ensemble.Nsystems
     radius_wheredf = comparison["where_true"]
     print("mass segregation occurs in "+str(len(df_sys_id))+" systems")
     if len(df_sys_id)>1:
@@ -147,7 +149,16 @@ def create_dynamical_model(ensemble,*,
             Menc_id = sys_dmdr["Menc"][final_idx]
             # the next line counts the number of 
             Nms = Menc_id * f_IMF_Mobj/M_obj
-    
+            core_radius_id = int(len(sys_dmdr['r'])/10.)
+            new_core_radius = sys_dmdr['r'][core_radius_id]
+            core_volume = 4./3. * np.pi * new_core_radius**3
+            core_velocity = sys_dmdr['sigma'][core_radius_id]
+            # t_coll_core_MS = collision_timescale(Nms/core_volume,core_velocity, M_obj, Mcollisions=M_obj).to('yr')
+            t_coll_core_MS = collision_timescale(Nms/core_volume,core_velocity, ensemble.timescales_kwargs['Mstar'], Mcollisions=M_obj).to('yr')
+            out['t_coll_massive'][sys_id] = t_coll_core_MS
+            
+            
+
 
     if as_ == "dict":
         return out
