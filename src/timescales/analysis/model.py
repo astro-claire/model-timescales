@@ -11,12 +11,111 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system, condition_test
+from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits
 from .recipes import per_system_comparison, destructive_colllision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
 from ..physics.collisions import collision_timescale
 from ..utils.energy import escape_velocity
 from ..utils.filtering import filter_kwargs_for
+
+
+def create_dynamical_model_integral(ensemble,*,
+                        deltamstar = 0.5*u.Msun,
+                        as_: Literal["dict", "pandas"] = "dict",
+                        verbose = True
+                            ):
+    """ 
+    Create dynamical model using exact integral
+    """
+    #get per radius information
+    timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
+    denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
+    massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
+
+    #initialize a table of outputs. One row for each system (bulk)
+    out = Table = {
+        "mass": list(ensemble.grid['M']),
+        "radius": list(ensemble.grid['R']),
+        "velocity": list(ensemble.grid['V']),
+        "kinetic": list(ensemble.grid['K']),
+        "potential": list(ensemble.grid['U']),
+        "t_ms": [],
+        "t_merger":[], 
+        }
+
+    #set up kwargs for the timescale functions
+    all_possible_kwargs = ensemble.timescales_kwargs | ensemble.profile_kwargs
+    #these are needed as positional arguments for the halo calculations
+    if 'redshift' not in all_possible_kwargs.keys():
+        all_possible_kwargs['redshift']=12
+        if verbose == True: 
+            print("Using default z = 12 since no redshift provided")
+    if 'cosmology' not in all_possible_kwargs.keys():
+        all_possible_kwargs['cosmology']=FlatLambdaCDM(71,0.27,Ob0=0.044, Tcmb0=2.726 *u.K)
+        if verbose == True:
+            print("No cosmology provided. Initializing flat LCDM with H0 = 71,Om = 0.27, Ob0 = 0.044,Tcmb0=2.726 ")
+    if 'int_type' not in all_possible_kwargs.keys():
+        all_possible_kwargs['int_type'] = 'neighbor'
+        if verbose ==True:
+            print("Using nearest neighbor for interaction type.")
+
+    #quantities that only need to be calculated once
+    t_universe = all_possible_kwargs['cosmology'].age(0).to('yr')
+    f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
+
+    #now, iterate through all the systems to create the minimum disruption timescales
+    minimum_disruption_time = []
+    for sys_id in range(ensemble.Nsystems):
+        #calculate disruptive timescales:
+        #First, main sequence
+        t_ms = main_sequence_lifetime_approximation(ensemble.timescales_kwargs['Mstar']).to('yr')
+        out['t_ms'].append(t_ms)
+        #next, interaction timescale:
+        t_merger = _get_t_merger(all_possible_kwargs,sys_id, ensemble, verbose = verbose).to('yr')
+        out['t_merger'].append(t_merger)
+        #find out what's the limiting time for the system:
+        minimum_disruption_time.append(min([t_merger,t_ms,t_universe]))
+    comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
+    out['coll_occur_within_tmin'] = comparison['condition']
+
+    coll_sys_id = np.where(out['coll_occur_within_tmin'])[0]
+    print("collisions occur in "+str(len(coll_sys_id))+" systems")
+    out['N_collisions'] = [0]* ensemble.Nsystems
+    out['N_collisions_massloss']= [0]* ensemble.Nsystems
+    for sys_id in range(ensemble.Nsystems):
+        prof = ensemble.profiles[sys_id]
+        cv = prof.get_veldisp_constant()
+        ts = minimum_disruption_time[sys_id]
+        out['N_collisions'][sys_id] = Ncoll_pl_no_bh(prof.r0,
+                                ts, 
+                                prof.alpha, 
+                                cv,
+                                prof.rho0,
+                                f_IMF_m,
+                                Mstar = 1.0*u.Msun,
+                                Mcollisions=1.*u.Msun, 
+                                e = 0)
+        sys_massloss = get_system(massloss_byradius, sys_id)
+        massloss = np.array(sys_massloss['massloss'])
+        ml_idx = np.where(massloss==1)[0]
+        if len(ml_idx)>1:
+            where_ml_cutoff = ml_idx[-1]
+            radiusml = sys_data['r'][where_ml_cutoff] * u.pc
+            out['N_collisions_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
+                                    ts, 
+                                    prof.alpha, 
+                                    cv,
+                                    prof.rho0,
+                                    f_IMF_m,
+                                    Mstar = 1.0*u.Msun,
+                                    Mcollisions=1.*u.Msun, 
+                                    e = 0,
+                                    rmax = radiusml)
+    print(out['N_collisions_massloss'])
+    return out
+
+
 
 def create_dynamical_model(ensemble,*,
                         deltamstar = 0.5*u.Msun,
@@ -140,6 +239,7 @@ def create_dynamical_model(ensemble,*,
 
     df_sys_id = np.where(out['df_occur_within_tmin'])[0]
     out['t_coll_massive'] = [0]*ensemble.Nsystems
+    out['total_N_coll_massive'] = [0]*ensemble.Nsystems
     radius_wheredf = comparison["where_true"]
     print("mass segregation occurs in "+str(len(df_sys_id))+" systems")
     if len(df_sys_id)>1:
@@ -156,9 +256,9 @@ def create_dynamical_model(ensemble,*,
             # t_coll_core_MS = collision_timescale(Nms/core_volume,core_velocity, M_obj, Mcollisions=M_obj).to('yr')
             t_coll_core_MS = collision_timescale(Nms/core_volume,core_velocity, ensemble.timescales_kwargs['Mstar'], Mcollisions=M_obj).to('yr')
             out['t_coll_massive'][sys_id] = t_coll_core_MS
-            
-            
 
+            N_coll= minimum_disruption_time[sys_id]/t_coll_core_MS
+            out['total_N_coll_massive'][sys_id]= N_coll * Nms
 
     if as_ == "dict":
         return out
