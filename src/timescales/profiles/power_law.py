@@ -128,7 +128,19 @@ class PowerLawProfile(ProfileBase):
             constant = (V_c/V_norm )**2
         sigma2 = constant * const.G * Menc / (r * (1.0 + self.alpha))
         return np.sqrt(sigma2).to(u.km / u.s)
-    
+
+    def get_veldisp_constant(self):
+        constant = 1.
+        if self.V_c is not None:
+            # Here I'm normalizing by the actual velocity of the model. 
+            V_c = as_quantity(self.V_c, u.km/u.s)
+            if self.M_ref is not None: # need a reference mass for the normalization - use provided Mtot
+                V_norm = as_quantity(np.sqrt(const.G * self.M_ref /self.r0), u.km/u.s )
+            else: #else take the reference velocity as the circular velocity at r0
+                Mtot = as_quantity(self.enclosed_mass(self.r0),u.Msun)
+                V_norm = as_quantity(np.sqrt(const.G * Mtot /self.r0), u.km/u.s )
+            constant = (V_c/V_norm )**2
+        return constant
     # def velocity_dispersion(self, r: Quantity) -> Quantity:
     #     """
     #     """
