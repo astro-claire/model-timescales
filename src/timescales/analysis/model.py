@@ -11,7 +11,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system, condition_test
-from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits
+from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits,N_coll_bh_limits
 from .recipes import per_system_comparison, destructive_colllision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
@@ -87,21 +87,34 @@ def create_dynamical_model_integral(ensemble,*,
         prof = ensemble.profiles[sys_id]
         cv = prof.get_veldisp_constant()
         ts = minimum_disruption_time[sys_id]
-        out['N_collisions'][sys_id] = Ncoll_pl_no_bh(prof.r0,
-                                ts, 
-                                prof.alpha, 
-                                cv,
-                                prof.rho0,
-                                f_IMF_m,
-                                Mstar = 1.0*u.Msun,
-                                Mcollisions=1.*u.Msun, 
-                                e = 0)
+        if "BH" in ensemble.densityModel:
+            out['N_collisions'][sys_id] = N_coll_bh_limits(prof.r0,
+                                    ts, 
+                                    prof.alpha, 
+                                    cv,
+                                    prof.rho0,
+                                    f_IMF_m,
+                                    ensemble.profile_kwargs['M_bh'],
+                                    Mstar = 1.0*u.Msun,
+                                    Mcollisions=1.*u.Msun, 
+                                    rmin =0*u.pc,
+                                    e = 0)
+        else: 
+            out['N_collisions'][sys_id] = Ncoll_pl_no_bh(prof.r0,
+                                    ts, 
+                                    prof.alpha, 
+                                    cv,
+                                    prof.rho0,
+                                    f_IMF_m,
+                                    Mstar = 1.0*u.Msun,
+                                    Mcollisions=1.*u.Msun, 
+                                    e = 0)
         sys_massloss = get_system(massloss_byradius, sys_id)
         massloss = np.array(sys_massloss['massloss'])
         ml_idx = np.where(massloss==1)[0]
         if len(ml_idx)>1:
             where_ml_cutoff = ml_idx[-1]
-            radiusml = sys_data['r'][where_ml_cutoff] * u.pc
+            radiusml = sys_massloss['r'][where_ml_cutoff] 
             out['N_collisions_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
                                     ts, 
                                     prof.alpha, 
@@ -112,6 +125,8 @@ def create_dynamical_model_integral(ensemble,*,
                                     Mcollisions=1.*u.Msun, 
                                     e = 0,
                                     rmax = radiusml)
+    whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
+    print("mass loss occurs in "+str(len(whereml))+" systems")
     print(out['N_collisions_massloss'])
     return out
 

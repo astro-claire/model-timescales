@@ -92,3 +92,52 @@ def Ncoll_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcoll
         return result.cgs.value
 
     return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
+
+
+def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*, 
+                            Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """ 
+    Number of collisions with a black hole and a power law rho profile
+    """
+    #calc collisional radii and eccentricity functions
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+
+    #First prefactor
+    prefactor = np.pi *ts * fimf * (3-alpha) / (Mstar**2)
+    # eccentricity functions
+    F1 = f1 * rc**2
+    F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+    #term prefactors
+    sqrt_term = cv * G / (1+alpha)
+    cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    # more prefactors and the integral need the limits
+    def integrate_func(r):
+        first_pref = np.sqrt(MBH) * r**(5./2.-2*alpha)/(5./2.-2*alpha)
+        second_pref = np.sqrt(1./MBH) * r**(7./2.-2*alpha)/(7./2.-2*alpha)
+
+        #put it all together
+        result = prefactor * (
+            (F1 * np.sqrt(sqrt_term) *cm * crho * first_pref*
+                scipy.special.hyp2f1(
+                    0.5, 
+                    (5./2.-2*alpha)/(3.-alpha),
+                    (11./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).cgs.value
+                )
+                 ) 
+            +
+            (F2 * (sqrt_term)**(-1./2.)*cm * crho * second_pref* 
+                scipy.special.hyp2f1(
+                    0.5, 
+                    (7./2.-2*alpha)/(3.-alpha),
+                    (13./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).value
+                )
+             )
+        )
+        return result.cgs.value
+    return integrate_func(rmax)-integrate_func(rmin) 
