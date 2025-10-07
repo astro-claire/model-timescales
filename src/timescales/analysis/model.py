@@ -23,7 +23,8 @@ from ..utils.filtering import filter_kwargs_for
 def create_dynamical_model_integral(ensemble,*,
                         deltamstar = 0.5*u.Msun,
                         as_: Literal["dict", "pandas"] = "dict",
-                        verbose = True
+                        verbose = True, 
+                        z_final = 0,
                             ):
     """ 
     Create dynamical model using exact integral
@@ -61,7 +62,7 @@ def create_dynamical_model_integral(ensemble,*,
             print("Using nearest neighbor for interaction type.")
 
     #quantities that only need to be calculated once
-    t_universe = all_possible_kwargs['cosmology'].age(0).to('yr')
+    t_universe = all_possible_kwargs['cosmology'].age(z_final).to('yr')
     f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
 
     #now, iterate through all the systems to create the minimum disruption timescales
@@ -99,7 +100,7 @@ def create_dynamical_model_integral(ensemble,*,
                                     Mcollisions=1.*u.Msun, 
                                     rmin =0*u.pc,
                                     e = 0)
-        else: 
+        else:
             out['N_collisions'][sys_id] = Ncoll_pl_no_bh(prof.r0,
                                     ts, 
                                     prof.alpha, 
