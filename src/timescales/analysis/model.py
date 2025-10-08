@@ -25,6 +25,7 @@ def create_dynamical_model_integral(ensemble,*,
                         as_: Literal["dict", "pandas"] = "dict",
                         verbose = True, 
                         z_final = 0,
+                        mass_fraction_retained = .01
                             ):
     """ 
     Create dynamical model using exact integral
@@ -101,7 +102,7 @@ def create_dynamical_model_integral(ensemble,*,
                                     f_IMF_m,
                                     ensemble.profile_kwargs['M_bh'],
                                     Mstar = 1.0*u.Msun,
-                                    Mcollisions=1.*u.Msun, 
+                                    Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                     rmin =0*u.pc,
                                     e = 0)
         else:
@@ -132,6 +133,11 @@ def create_dynamical_model_integral(ensemble,*,
                                     rmax = radiusml)
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
+    out['N_collisions_constructive'] = np.array(out['N_collisions'])-np.array(out['N_collisions_massloss'])
+    superstar= np.array([out['N_collisions_constructive'][i] * mass_fraction_retained for i in range(len(out['N_collisions_constructive']))])
+    out['M_superstar'] = superstar *u.Msun
+    gasmass = [out['N_collisions_constructive'][i] * (1-mass_fraction_retained) + out['N_collisions_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
+    out['Mgas'] = gasmass * u.Msun
     return out
 
 
