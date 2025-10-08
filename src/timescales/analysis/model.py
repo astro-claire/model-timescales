@@ -67,6 +67,7 @@ def create_dynamical_model_integral(ensemble,*,
 
     #now, iterate through all the systems to create the minimum disruption timescales
     minimum_disruption_time = []
+    which_disruption_time = []
     for sys_id in range(ensemble.Nsystems):
         #calculate disruptive timescales:
         #First, main sequence
@@ -77,6 +78,9 @@ def create_dynamical_model_integral(ensemble,*,
         out['t_merger'].append(t_merger)
         #find out what's the limiting time for the system:
         minimum_disruption_time.append(min([t_merger,t_ms,t_universe]))
+        which_disruption_time.append([t_merger,t_ms,t_universe].index(min([t_merger,t_ms,t_universe])))
+    out['which_disruption_time']=which_disruption_time
+    out['minimum_disruption_time']= minimum_disruption_time
     comparison =per_system_comparison(timescales_by_radius, 't_coll', 'lt', value = minimum_disruption_time)
     out['coll_occur_within_tmin'] = comparison['condition']
 
@@ -128,7 +132,6 @@ def create_dynamical_model_integral(ensemble,*,
                                     rmax = radiusml)
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
-    print(out['N_collisions_massloss'])
     return out
 
 
