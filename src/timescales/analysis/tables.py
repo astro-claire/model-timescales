@@ -163,6 +163,7 @@ def timescale_table(
     system_ids: Optional[Iterable[Union[int, str]]] = None,
     as_: Literal["dict", "pandas"] = "dict",
     verbose = True, 
+    override_args: Optional[Dict] = None,
     coulomb_log = None, #deprecated
     m_star: Optional[Quantity]=None,#deprecated
     collision_kwargs: Optional[Dict] = None, #deprecated
@@ -190,6 +191,8 @@ def timescale_table(
         Optional system labels.
     as_
         "dict" or "pandas" (see structural_table).
+    override_args
+        Dict of args to override the included ensemble args
 
     Returns
     -------
@@ -231,7 +234,12 @@ def timescale_table(
 
     all_possible_kwargs = ensemble.timescales_kwargs | ensemble.profile_kwargs
 
+    if override_args: 
+        for arg in override_args.keys():
+            all_possible_kwargs[arg] = override_args[arg]
+
     fields = ['Menc']
+    want_n = False
     if want_tcoll:
         fields.append("rho")
         fields.append("sigma")
