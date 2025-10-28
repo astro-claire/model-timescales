@@ -33,7 +33,10 @@ def create_dynamical_model_integral(ensemble,*,
     #get per radius information
     timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
-    massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
+    massloss_byradius = destructive_colllision_criterion(ensemble)
+    timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
+    
+    # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
 
     #initialize a table of outputs. One row for each system (bulk)
     out = Table = {
@@ -87,33 +90,41 @@ def create_dynamical_model_integral(ensemble,*,
 
     coll_sys_id = np.where(out['coll_occur_within_tmin'])[0]
     print("collisions occur in "+str(len(coll_sys_id))+" systems")
+    #output empty lists
     out['N_collisions'] = [0]* ensemble.Nsystems
     out['N_collisions_massloss']= [0]* ensemble.Nsystems
+    out['fraction_sticky'] =[0]* ensemble.Nsystems
+    out['N_collisions_df'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction region
+    out['N_collisions_df_massloss'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction + massloss region
+
+    if 'Mcollisions' not in ensemble.timescales_kwargs.keys():
+        ensemble.timescales_kwargs['Mcollisions'] = 1.0*u.Msun
+
     for sys_id in range(ensemble.Nsystems):
         prof = ensemble.profiles[sys_id]
         cv = prof.get_veldisp_constant()
         ts = minimum_disruption_time[sys_id]
         if "BH" in ensemble.densityModel:
-            out['N_collisions'][sys_id] = N_coll_bh_limits(prof.r0,
+            out['N_collisions'][sys_id] = N_coll_bh_limits(prof.r0, #TODO FIX THE BH FUNCTION
                                     ts, 
                                     prof.alpha, 
                                     cv,
                                     prof.rho0,
                                     f_IMF_m,
                                     ensemble.profile_kwargs['M_bh'],
-                                    Mstar = 1.0*u.Msun,
-                                    Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
-                                    rmin =0*u.pc,
-                                    e = 0)
+                                    Mstar = 1.0*u.Msun, #TODO fix these built ins
+                                    Mcollisions=1.0*u.Msun, 
+                                    rmin =0.1*u.pc,
+                                    e = 0)                  
         else:
-            out['N_collisions'][sys_id] = Ncoll_pl_no_bh(prof.r0,
+            out['N_collisions'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
                                     ts, 
                                     prof.alpha, 
                                     cv,
                                     prof.rho0,
                                     f_IMF_m,
                                     Mstar = 1.0*u.Msun,
-                                    Mcollisions=1.*u.Msun, 
+                                    Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                     e = 0)
         sys_massloss = get_system(massloss_byradius, sys_id)
         massloss = np.array(sys_massloss['massloss'])
@@ -121,7 +132,7 @@ def create_dynamical_model_integral(ensemble,*,
         if len(ml_idx)>1:
             where_ml_cutoff = ml_idx[-1]
             radiusml = sys_massloss['r'][where_ml_cutoff] 
-            out['N_collisions_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
+            out['N_collisions_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0, #TODO you need to add in the no bh here
                                     ts, 
                                     prof.alpha, 
                                     cv,
@@ -131,12 +142,56 @@ def create_dynamical_model_integral(ensemble,*,
                                     Mcollisions=1.*u.Msun, 
                                     e = 0,
                                     rmax = radiusml)
+        #That was total ncol, let's consider where dynamical friction will bring sticky spheres to the middle
+        sys_df = get_system(timescales_by_radius,sys_id)
+        sticky_tdf= sys_df['stickytdf'] * u.yr
+        where_stickydf = np.where(sticky_tdf<ts)[0]
+        if len(where_stickydf>1):
+            out['fraction_sticky'] = float(where_stickydf[-1])/ensemble.Nsampling
+            r_stickydf = ensemble.radii[sys_id][where_stickydf[-1]] #rmax of dynamical friction region
+            if "BH" in ensemble.densityModel:
+                out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
+                                        ts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        ensemble.profile_kwargs['M_bh'],
+                                        Mstar = 1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmin =0*u.pc,
+                                        rmax =r_stickydf,
+                                        e = 0)
+            else:
+                out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
+                                        ts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        Mstar = 1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmax =r_stickydf,
+                                        e = 0)        
+            if len(ml_idx)>1:
+                where_ml_cutoff = ml_idx[-1]
+                radiusml = sys_massloss['r'][where_ml_cutoff] 
+                out['N_collisions_df_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0, #TODO you need to add in the no bh here
+                                        ts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        Mstar = 1.0*u.Msun,
+                                        Mcollisions=1.*u.Msun, 
+                                        e = 0,
+                                        rmax = min(r_stickydf,radiusml))
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
-    out['N_collisions_constructive'] = np.array(out['N_collisions'])-np.array(out['N_collisions_massloss'])
+    out['N_collisions_constructive'] = np.array(out['N_collisions_df'])-np.array(out['N_collisions_df_massloss'])
     superstar= np.array([out['N_collisions_constructive'][i] * mass_fraction_retained for i in range(len(out['N_collisions_constructive']))])
     out['M_superstar'] = superstar *u.Msun
-    gasmass = [out['N_collisions_constructive'][i] * (1-mass_fraction_retained) + out['N_collisions_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
+    gasmass = [out['N_collisions_constructive'][i] * (1-mass_fraction_retained) + out['N_collisions_df_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
     out['Mgas'] = gasmass * u.Msun
     return out
 
@@ -154,7 +209,7 @@ def create_dynamical_model(ensemble,*,
     #get per radius information
     timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
-    massloss_byradius =  masslosstable = destructive_colllision_criterion(ensemble)
+    massloss_byradius = destructive_colllision_criterion(ensemble)
 
     #initialize a table of outputs. One row for each system (bulk)
     out = Table = {
