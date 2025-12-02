@@ -112,10 +112,10 @@ def create_dynamical_model_integral(ensemble,*,
                                     prof.rho0,
                                     f_IMF_m,
                                     ensemble.profile_kwargs['M_bh'],
-                                    Mstar = 1.0*u.Msun, #TODO fix these built ins
-                                    Mcollisions=1.0*u.Msun, 
+                                    Mstar =  ensemble.timescales_kwargs["Mstar"],
+                                    Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                     rmin =0.1*u.pc,
-                                    e = 0)                  
+                                    e = ensemble.timescales_kwargs["e"])                  
         else:
             out['N_collisions'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
                                     ts, 
@@ -123,9 +123,9 @@ def create_dynamical_model_integral(ensemble,*,
                                     cv,
                                     prof.rho0,
                                     f_IMF_m,
-                                    Mstar = 1.0*u.Msun,
+                                    Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
                                     Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
-                                    e = 0)
+                                    e =  ensemble.timescales_kwargs["e"])
         sys_massloss = get_system(massloss_byradius, sys_id)
         massloss = np.array(sys_massloss['massloss'])
         ml_idx = np.where(massloss==1)[0]
@@ -138,9 +138,9 @@ def create_dynamical_model_integral(ensemble,*,
                                     cv,
                                     prof.rho0,
                                     f_IMF_m,
-                                    Mstar = 1.0*u.Msun,
-                                    Mcollisions=1.*u.Msun, 
-                                    e = 0,
+                                    Mstar = ensemble.timescales_kwargs["Mstar"],
+                                    Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                    e = ensemble.timescales_kwargs["e"],
                                     rmax = radiusml)
         #That was total ncol, let's consider where dynamical friction will bring sticky spheres to the middle
         sys_df = get_system(timescales_by_radius,sys_id)
@@ -157,11 +157,11 @@ def create_dynamical_model_integral(ensemble,*,
                                         prof.rho0,
                                         f_IMF_m,
                                         ensemble.profile_kwargs['M_bh'],
-                                        Mstar = 1.0*u.Msun,
+                                        Mstar =  ensemble.timescales_kwargs["Mstar"],
                                         Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                         rmin =0*u.pc,
                                         rmax =r_stickydf,
-                                        e = 0)
+                                        e = ensemble.timescales_kwargs["e"])
             else:
                 out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
                                         ts, 
@@ -169,10 +169,10 @@ def create_dynamical_model_integral(ensemble,*,
                                         cv,
                                         prof.rho0,
                                         f_IMF_m,
-                                        Mstar = 1.0*u.Msun,
+                                        Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
                                         Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                         rmax =r_stickydf,
-                                        e = 0)        
+                                        e = ensemble.timescales_kwargs["e"])        
             if len(ml_idx)>1:
                 where_ml_cutoff = ml_idx[-1]
                 radiusml = sys_massloss['r'][where_ml_cutoff] 
@@ -182,9 +182,9 @@ def create_dynamical_model_integral(ensemble,*,
                                         cv,
                                         prof.rho0,
                                         f_IMF_m,
-                                        Mstar = 1.0*u.Msun,
-                                        Mcollisions=1.*u.Msun, 
-                                        e = 0,
+                                        Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        e = ensemble.timescales_kwargs["e"],
                                         rmax = min(r_stickydf,radiusml))
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
