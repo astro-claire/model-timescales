@@ -90,8 +90,43 @@ def Ncoll_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcoll
         r0term2 = (r**(2.-(3.*alpha/2))) /(2.-(3.*alpha/2))
         result = prefactor * ( (F1* np.sqrt(sqrt_term)*rhoterm1*r0term1).cgs+(F2 *(sqrt_term)**(-1./2.)*rhoterm2 *r0term2).cgs)
         return result.cgs.value
-
-    return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
+    def integral58(r):
+        """alpha = 5/8. Special case integrals to handle discontinuities in the previous function's integral form"""
+        prefactor = np.pi *ts * fimf * (3-alpha) / (Mstar**2)
+        # eccentricity functions
+        F1 = f1 * rc**2
+        F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+        #term prefactors
+        sqrt_term = cv * G / (1+alpha)
+        rhoterm1 = (4.* np.pi)**(3./2.) * (rho0**(5./2.)) / r0**(-5.*alpha/2.) * (3.- alpha)**(-3./2.)
+        rhoterm2 = (4.* np.pi)**(1./2.) * (rho0**(3./2.)) / r0**(-3.*alpha/2.) * (3.- alpha)**(-1./2.)
+        # The main r terms
+        r0term1 = np.log(r.to("pc").value)
+        r0term2 = (r**(2.-(3.*alpha/2))) /(2.-(3.*alpha/2))
+        result = prefactor * ( (F1* np.sqrt(sqrt_term)*rhoterm1*r0term1).cgs+(F2 *(sqrt_term)**(-1./2.)*rhoterm2 *r0term2).cgs)
+        return result.cgs.value
+    def integral43(r):
+        """alphs = 4/3. Special case integrals to handle discontinuities in the previous function's integral form"""
+        prefactor = np.pi *ts * fimf * (3-alpha) / (Mstar**2)
+        # eccentricity functions
+        F1 = f1 * rc**2
+        F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+        #term prefactors
+        sqrt_term = cv * G / (1+alpha)
+        rhoterm1 = (4.* np.pi)**(3./2.) * (rho0**(5./2.)) / r0**(-5.*alpha/2.) * (3.- alpha)**(-3./2.)
+        rhoterm2 = (4.* np.pi)**(1./2.) * (rho0**(3./2.)) / r0**(-3.*alpha/2.) * (3.- alpha)**(-1./2.)
+        # The main r terms
+        r0term1 = (r**(4.-(5.*alpha/2))) / (4.-(5.*alpha/2))
+        r0term2 = np.log(r.to("pc").value)
+        result = prefactor * ( (F1* np.sqrt(sqrt_term)*rhoterm1*r0term1).cgs+(F2 *(sqrt_term)**(-1./2.)*rhoterm2 *r0term2).cgs)
+        return result.cgs.value
+    if alpha == 1.6:
+        return integral58(rmax.to("pc"))-integral58(rmin.to("pc"))
+    elif np.isclose(alpha, (4./3.),1e-6) :
+        return integral43(rmax.to("pc"))-integral43(rmin.to("pc"))
+    else:
+        return integral(rmax.to("pc"))-integral(rmin.to("pc")) 
+    # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
 
 
 def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*, 
@@ -139,17 +174,6 @@ def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*,
                 )
              )
         )
-        print(scipy.special.hyp2f1(
-                    0.5, 
-                    (5./2.-2*alpha)/(3.-alpha),
-                    (11./2.-3*alpha)/(3.-alpha),
-                    (-cm * r**(3.-alpha)/(MBH)).cgs.value
-                ),scipy.special.hyp2f1(
-                    0.5, 
-                    (7./2.-2*alpha)/(3.-alpha),
-                    (13./2.-3*alpha)/(3.-alpha),
-                    (-cm * r**(3.-alpha)/(MBH)).value
-                ))
         return result.cgs.value
     def integrate_54(r):
         """Exact form for alpha = 5/4 for which hypergeometric integral has zero in denominator"""
