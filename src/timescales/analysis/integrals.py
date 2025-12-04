@@ -139,5 +139,69 @@ def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*,
                 )
              )
         )
+        print(scipy.special.hyp2f1(
+                    0.5, 
+                    (5./2.-2*alpha)/(3.-alpha),
+                    (11./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).cgs.value
+                ),scipy.special.hyp2f1(
+                    0.5, 
+                    (7./2.-2*alpha)/(3.-alpha),
+                    (13./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).value
+                ))
         return result.cgs.value
-    return integrate_func(rmax)-integrate_func(rmin) 
+    def integrate_54(r):
+        """Exact form for alpha = 5/4 for which hypergeometric integral has zero in denominator"""
+        first_pref = 8./7.
+        second_pref = np.sqrt(1./MBH) * r**(7./2.-2*alpha)/(7./2.-2*alpha)
+
+        #put it all together
+        result = prefactor * (
+            (F1 * np.sqrt(sqrt_term) *cm * crho * first_pref*
+                (
+                    np.sqrt(cm * r**(7./4.)+MBH)-
+                    np.sqrt(MBH)*np.arcsinh((np.sqrt(MBH)/np.sqrt(cm)/r**(7./8.)).cgs.value)
+                )
+                 ) 
+            +
+            (F2 * (sqrt_term)**(-1./2.)*cm * crho * second_pref* 
+                scipy.special.hyp2f1(
+                    0.5, 
+                    (7./2.-2*alpha)/(3.-alpha),
+                    (13./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).value
+                )
+             )
+        )
+        return result.cgs.value
+    def integrate_74(r):
+        """Exact form for alpha = 7/4 for which hypergeometric integral has zero in denominator"""
+
+        first_pref = np.sqrt(MBH) * r**(5./2.-2*alpha)/(5./2.-2*alpha)
+        second_pref =-8./(5.*np.sqrt(MBH))
+
+        #put it all together
+        result = prefactor * (
+            (F1 * np.sqrt(sqrt_term) *cm * crho * first_pref*
+                scipy.special.hyp2f1(
+                    0.5, 
+                    (5./2.-2*alpha)/(3.-alpha),
+                    (11./2.-3*alpha)/(3.-alpha),
+                    (-cm * r**(3.-alpha)/(MBH)).cgs.value
+                )
+                 ) 
+            +
+            (F2 * (sqrt_term)**(-1./2.)*cm * crho * second_pref* 
+                (
+                    np.arcsinh((np.sqrt(MBH)/np.sqrt(cm)/(r**(5/8))).cgs.value)
+                )
+             )
+        )
+        return result.cgs.value
+    if alpha == 1.25:
+        return integrate_54(rmax.to("pc"))-integrate_54(rmin.to("pc"))
+    elif alpha == 1.75:
+        return integrate_74(rmax.to("pc"))-integrate_74(rmin.to("pc"))
+    else:
+        return integrate_func(rmax.to("pc"))-integrate_func(rmin.to("pc")) 
