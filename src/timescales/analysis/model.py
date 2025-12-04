@@ -100,6 +100,9 @@ def create_dynamical_model_integral(ensemble,*,
     if 'Mcollisions' not in ensemble.timescales_kwargs.keys():
         ensemble.timescales_kwargs['Mcollisions'] = 1.0*u.Msun
 
+    #setup rmin
+    rmin = 2* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
+
     for sys_id in range(ensemble.Nsystems):
         prof = ensemble.profiles[sys_id]
         cv = prof.get_veldisp_constant()
@@ -114,7 +117,7 @@ def create_dynamical_model_integral(ensemble,*,
                                     ensemble.profile_kwargs['M_bh'],
                                     Mstar =  ensemble.timescales_kwargs["Mstar"],
                                     Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
-                                    rmin =0.1*u.pc,
+                                    rmin =rmin,
                                     e = ensemble.timescales_kwargs["e"])                  
         else:
             out['N_collisions'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
@@ -125,6 +128,7 @@ def create_dynamical_model_integral(ensemble,*,
                                     f_IMF_m,
                                     Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
                                     Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                    rmin =rmin,
                                     e =  ensemble.timescales_kwargs["e"])
         sys_massloss = get_system(massloss_byradius, sys_id)
         massloss = np.array(sys_massloss['massloss'])
@@ -141,6 +145,7 @@ def create_dynamical_model_integral(ensemble,*,
                                     Mstar = ensemble.timescales_kwargs["Mstar"],
                                     Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                     e = ensemble.timescales_kwargs["e"],
+                                    rmin =rmin,
                                     rmax = radiusml)
         #That was total ncol, let's consider where dynamical friction will bring sticky spheres to the middle
         sys_df = get_system(timescales_by_radius,sys_id)
@@ -159,7 +164,7 @@ def create_dynamical_model_integral(ensemble,*,
                                         ensemble.profile_kwargs['M_bh'],
                                         Mstar =  ensemble.timescales_kwargs["Mstar"],
                                         Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
-                                        rmin =0*u.pc,
+                                        rmin =rmin,
                                         rmax =r_stickydf,
                                         e = ensemble.timescales_kwargs["e"])
             else:
@@ -172,6 +177,7 @@ def create_dynamical_model_integral(ensemble,*,
                                         Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
                                         Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                         rmax =r_stickydf,
+                                        rmin =rmin,
                                         e = ensemble.timescales_kwargs["e"])        
             if len(ml_idx)>1:
                 where_ml_cutoff = ml_idx[-1]
@@ -185,9 +191,11 @@ def create_dynamical_model_integral(ensemble,*,
                                         Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
                                         Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                         e = ensemble.timescales_kwargs["e"],
+                                        rmin =rmin,
                                         rmax = min(r_stickydf,radiusml))
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
+    print(out['N_collisions'])
     out['N_collisions_constructive'] = np.array(out['N_collisions_df'])-np.array(out['N_collisions_df_massloss'])
     superstar= np.array([out['N_collisions_constructive'][i] * mass_fraction_retained for i in range(len(out['N_collisions_constructive']))])
     out['M_superstar'] = superstar *u.Msun
