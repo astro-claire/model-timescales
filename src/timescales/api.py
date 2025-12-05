@@ -77,7 +77,7 @@ class TimescaleEnsemble:
             for key in self.imf_kwargs.keys():
                 print(str(key)+"=" +str(self.imf_kwargs[key]))
         else:
-            print(f"No imf arguments given. Defaulting to '{imfModel}'.")
+            print(f"No imf arguments given. Defaulting to '{imfModel} defaults'.")
             self.imfModel = imfModel
             self.imf_kwargs= {}
         for key, value in self.imf_kwargs.items():
