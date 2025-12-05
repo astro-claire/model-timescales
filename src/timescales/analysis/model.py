@@ -52,10 +52,11 @@ def create_dynamical_model_integral(ensemble,*,
     #set up kwargs for the timescale functions
     all_possible_kwargs = ensemble.timescales_kwargs | ensemble.profile_kwargs
     #these are needed as positional arguments for the halo calculations
-    if 'redshift' not in all_possible_kwargs.keys():
-        all_possible_kwargs['redshift']=12
-        if verbose == True: 
-            print("Using default z = 12 since no redshift provided")
+    all_possible_kwargs['redshift']=z_final
+    # if 'redshift' not in all_possible_kwargs.keys():
+    #     all_possible_kwargs['redshift']=12
+    #     if verbose == True: 
+    #         print("Using default z = 12 since no redshift provided")
     if 'cosmology' not in all_possible_kwargs.keys():
         all_possible_kwargs['cosmology']=FlatLambdaCDM(71,0.27,Ob0=0.044, Tcmb0=2.726 *u.K)
         if verbose == True:
@@ -177,7 +178,7 @@ def create_dynamical_model_integral(ensemble,*,
                                         f_IMF_m,
                                         ensemble.profile_kwargs['M_bh'],
                                         Mstar =  ensemble.timescales_kwargs["Mstar"],
-                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        Mcollisions=2 *ensemble.timescales_kwargs['Mcollisions'], 
                                         rmin =rmin,
                                         rmax =r_stickydf,
                                         e = ensemble.timescales_kwargs["e"])
