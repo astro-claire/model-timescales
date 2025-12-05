@@ -1,4 +1,4 @@
-# src/timescales/profiles/power_law_BH.py
+# src/timescales/imf/salpeter.py
 from __future__ import annotations
 import numpy as np
 import astropy.units as u
