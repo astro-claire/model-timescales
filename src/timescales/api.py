@@ -60,6 +60,8 @@ class TimescaleEnsemble:
                 print(str(key)+"=" +str(self.timescales_kwargs[key]))
             if "Mstar" not in timescales_kwargs:
                 self.timescales_kwargs["Mstar"] = 1*u.Msun
+            if "e" not in timescales_kwargs:
+                self.timescales_kwargs["e"] = 0.5
         else:
             print("No timescale arguments given. Defaulting to eccentricity 0, Mstar 1Msun.")
             self.timescales_kwargs= {"e":0, "Mstar":1*u.Msun}
