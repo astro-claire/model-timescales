@@ -171,7 +171,7 @@ def create_dynamical_model_integral(ensemble,*,
             r_stickydf = ensemble.radii[sys_id][where_stickydf[-1]] #rmax of dynamical friction region
             if "BH" in ensemble.densityModel:
                 out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
-                                        tsnew, 
+                                        newts, 
                                         prof.alpha, 
                                         cv,
                                         prof.rho0,
@@ -184,7 +184,7 @@ def create_dynamical_model_integral(ensemble,*,
                                         e = ensemble.timescales_kwargs["e"])
             else:
                 out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
-                                        tsnew, 
+                                        newts, 
                                         prof.alpha, 
                                         cv,
                                         prof.rho0,
@@ -199,7 +199,7 @@ def create_dynamical_model_integral(ensemble,*,
                 radiusml = sys_massloss['r'][where_ml_cutoff] 
                 if "BH" in ensemble.densityModel:
                     out['N_collisions_df_massloss'][sys_id] = N_coll_bh_limits(prof.r0, 
-                                            tsnew, 
+                                            newts, 
                                             prof.alpha, 
                                             cv,
                                             prof.rho0,
@@ -212,7 +212,7 @@ def create_dynamical_model_integral(ensemble,*,
                                             rmax = min(r_stickydf,radiusml))                  
                 else:
                     out['N_collisions_df_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0, 
-                                            tsnew, 
+                                            newts, 
                                             prof.alpha, 
                                             cv,
                                             prof.rho0,
