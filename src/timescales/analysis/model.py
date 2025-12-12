@@ -35,7 +35,6 @@ def create_dynamical_model_integral(ensemble,*,
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
     massloss_byradius = destructive_colllision_criterion(ensemble)
     timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
-    
     # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
 
     #initialize a table of outputs. One row for each system (bulk)
@@ -165,13 +164,14 @@ def create_dynamical_model_integral(ensemble,*,
         #That was total ncol, let's consider where dynamical friction will bring sticky spheres to the middle
         sys_df = get_system(timescales_by_radius,sys_id)
         sticky_tdf= sys_df['stickytdf'] * u.yr
-        where_stickydf = np.where(sticky_tdf<ts)[0]
+        newts = min(ts, main_sequence_lifetime_approximation(2*ensemble.Mstar))
+        where_stickydf = np.where(sticky_tdf<newts)[0]
         if len(where_stickydf>1):
             out['fraction_sticky'] = float(where_stickydf[-1])/ensemble.Nsampling
             r_stickydf = ensemble.radii[sys_id][where_stickydf[-1]] #rmax of dynamical friction region
             if "BH" in ensemble.densityModel:
                 out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
-                                        ts, 
+                                        tsnew, 
                                         prof.alpha, 
                                         cv,
                                         prof.rho0,
@@ -184,7 +184,7 @@ def create_dynamical_model_integral(ensemble,*,
                                         e = ensemble.timescales_kwargs["e"])
             else:
                 out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
-                                        ts, 
+                                        tsnew, 
                                         prof.alpha, 
                                         cv,
                                         prof.rho0,
@@ -199,7 +199,7 @@ def create_dynamical_model_integral(ensemble,*,
                 radiusml = sys_massloss['r'][where_ml_cutoff] 
                 if "BH" in ensemble.densityModel:
                     out['N_collisions_df_massloss'][sys_id] = N_coll_bh_limits(prof.r0, 
-                                            ts, 
+                                            tsnew, 
                                             prof.alpha, 
                                             cv,
                                             prof.rho0,
@@ -212,7 +212,7 @@ def create_dynamical_model_integral(ensemble,*,
                                             rmax = min(r_stickydf,radiusml))                  
                 else:
                     out['N_collisions_df_massloss'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0, 
-                                            ts, 
+                                            tsnew, 
                                             prof.alpha, 
                                             cv,
                                             prof.rho0,
