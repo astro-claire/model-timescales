@@ -223,7 +223,7 @@ def create_dynamical_model_integral(ensemble,*,
                                             rmin =rmin,
                                             rmax = min(r_stickydf,radiusml))
             if len(ml_idx)>1:
-                out['mass_accretion_rate'][sys_id] = (out['N_collisions_df'][sys_id]-out['N_collisions_df_massloss'][sys_id])* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf])
+                out['mass_accretion_rate'][sys_id] = (out['N_collisions_df'][sys_id]-out['N_collisions_df_massloss'][sys_id])* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
             else:
                 out['mass_accretion_rate'][sys_id] = out['N_collisions_df'][sys_id]* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
