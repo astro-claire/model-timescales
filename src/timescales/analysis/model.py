@@ -96,7 +96,7 @@ def create_dynamical_model_integral(ensemble,*,
     out['fraction_sticky'] =[0]* ensemble.Nsystems
     out['N_collisions_df'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction region
     out['N_collisions_df_massloss'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction + massloss region
-
+    out['mass_accretion_rate']=[0] * ensemble.Nsystems
     if 'Mcollisions' not in ensemble.timescales_kwargs.keys():
         ensemble.timescales_kwargs['Mcollisions'] = 1.0*u.Msun
 
@@ -167,7 +167,7 @@ def create_dynamical_model_integral(ensemble,*,
         newts = min(ts, main_sequence_lifetime_approximation(2*ensemble.Mstar))
         where_stickydf = np.where(sticky_tdf<newts)[0]
         if len(where_stickydf>1):
-            out['fraction_sticky'] = float(where_stickydf[-1])/ensemble.Nsampling
+            out['fraction_sticky'][sys_id] = float(where_stickydf[-1])/ensemble.Nsampling
             r_stickydf = ensemble.radii[sys_id][where_stickydf[-1]] #rmax of dynamical friction region
             if "BH" in ensemble.densityModel:
                 out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
@@ -222,12 +222,17 @@ def create_dynamical_model_integral(ensemble,*,
                                             e = ensemble.timescales_kwargs["e"],
                                             rmin =rmin,
                                             rmax = min(r_stickydf,radiusml))
+            if len(ml_idx)>1:
+                out['mass_accretion_rate'][sys_id] = (out['N_collisions_df'][sys_id]-out['N_collisions_df_massloss'][sys_id])* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf])
+            else:
+                out['mass_accretion_rate'][sys_id] = out['N_collisions_df'][sys_id]* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
     print(len(np.where(np.array(out['N_collisions_df_massloss'])>1)[0]))
+    out['fraction_collisions_df']= np.array(out['N_collisions_df'])/np.array(out['N_collisions'])
     out['N_collisions_constructive'] = np.array(out['N_collisions_df'])-np.array(out['N_collisions_df_massloss'])
     superstar= np.array([out['N_collisions_constructive'][i] * mass_fraction_retained for i in range(len(out['N_collisions_constructive']))])
-    out['M_superstar'] = superstar *u.Msun
+    out['M_superstar'] = superstar *ensemble.timescales_kwargs["Mstar"]
     gasmass = [out['N_collisions_constructive'][i] * (1-mass_fraction_retained) + out['N_collisions_df_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
     out['Mgas'] = gasmass * u.Msun
     return out
