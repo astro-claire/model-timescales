@@ -5,6 +5,7 @@ Model for each system!
 from __future__ import annotations
 import numpy as np
 import astropy.units as u
+import astropy.constants as c
 from astropy.units import Quantity
 from astropy.cosmology import FlatLambdaCDM
 from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
@@ -36,7 +37,7 @@ def create_dynamical_model_integral(ensemble,*,
     massloss_byradius = destructive_colllision_criterion(ensemble)
     timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
     # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
-
+    
     #initialize a table of outputs. One row for each system (bulk)
     out = Table = {
         "mass": list(ensemble.grid['M']),
@@ -92,6 +93,7 @@ def create_dynamical_model_integral(ensemble,*,
     print("collisions occur in "+str(len(coll_sys_id))+" systems")
     #output empty lists
     out['N_collisions'] = [0]* ensemble.Nsystems
+    out['mass_fraction_retained'] = [0]* ensemble.Nsystems
     out['N_collisions_massloss']= [0]* ensemble.Nsystems
     out['fraction_sticky'] =[0]* ensemble.Nsystems
     out['N_collisions_df'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction region
@@ -102,8 +104,15 @@ def create_dynamical_model_integral(ensemble,*,
 
     #setup rmin
     rmin = 2* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
-
+    Rcollisions = stellar_radius_approximation(ensemble.timescales_kwargs["Mcollisions"])
     for sys_id in range(ensemble.Nsystems):
+        # denclosedmass_byradius[sys_id]
+        # print(get_system(denclosedmass_byradius, sys_id)['sigma'])
+        sigma_avg = np.mean(get_system(denclosedmass_byradius, sys_id)['sigma']*(u.km/u.s))
+        reduced_mass = (ensemble.timescales_kwargs['Mcollisions']*ensemble.timescales_kwargs['Mstar'])/(ensemble.timescales_kwargs['Mcollisions']+ensemble.timescales_kwargs['Mstar'])
+        GMR1 = c.G*ensemble.timescales_kwargs['Mstar']**2/(rmin/2)
+        GMR2 = c.G*ensemble.timescales_kwargs['Mcollisions']**2/(Rcollisions)
+        out['mass_fraction_retained'][sys_id] = (reduced_mass *sigma_avg**2/(GMR1+GMR2)).cgs.value
         prof = ensemble.profiles[sys_id]
         cv = prof.get_veldisp_constant()
         ts = minimum_disruption_time[sys_id]
@@ -223,17 +232,21 @@ def create_dynamical_model_integral(ensemble,*,
                                             rmin =rmin,
                                             rmax = min(r_stickydf,radiusml))
             if len(ml_idx)>1:
-                out['mass_accretion_rate'][sys_id] = (out['N_collisions_df'][sys_id]-out['N_collisions_df_massloss'][sys_id])* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
+                out['mass_accretion_rate'][sys_id] = (out['N_collisions_df'][sys_id]-out['N_collisions_df_massloss'][sys_id])* out['mass_fraction_retained'][sys_id]*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
             else:
-                out['mass_accretion_rate'][sys_id] = out['N_collisions_df'][sys_id]* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
+                out['mass_accretion_rate'][sys_id] = out['N_collisions_df'][sys_id]* out['mass_fraction_retained'][sys_id]*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
+            # out['mass_accretion_rate'][sys_id] = out['N_collisions_df'][sys_id]* mass_fraction_retained*ensemble.timescales_kwargs["Mstar"]/(sticky_tdf[where_stickydf][-1])
+            if out['mass_accretion_rate'][sys_id]==0:
+                out['mass_accretion_rate'][sys_id]= 0 *u.Msun/u.yr
     whereml, = np.where(np.array(out['N_collisions_massloss'])>1)
     print("mass loss occurs in "+str(len(whereml))+" systems")
     print(len(np.where(np.array(out['N_collisions_df_massloss'])>1)[0]))
+    print(out['mass_fraction_retained'])
     out['fraction_collisions_df']= np.array(out['N_collisions_df'])/np.array(out['N_collisions'])
     out['N_collisions_constructive'] = np.array(out['N_collisions_df'])-np.array(out['N_collisions_df_massloss'])
-    superstar= np.array([out['N_collisions_constructive'][i] * mass_fraction_retained for i in range(len(out['N_collisions_constructive']))])
+    superstar= np.array([out['N_collisions_constructive'][i] * out['mass_fraction_retained'][i] for i in range(len(out['N_collisions_constructive']))])
     out['M_superstar'] = superstar *ensemble.timescales_kwargs["Mstar"]
-    gasmass = [out['N_collisions_constructive'][i] * (1-mass_fraction_retained) + out['N_collisions_df_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
+    gasmass = [out['N_collisions_constructive'][i] * (1-out['mass_fraction_retained'][i]) + out['N_collisions_df_massloss'][i] for i in range(len(out['N_collisions_constructive']))]
     out['Mgas'] = gasmass * u.Msun
     return out
 
