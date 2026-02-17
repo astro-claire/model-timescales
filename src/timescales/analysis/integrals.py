@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 from astropy.constants import G
+from astropy.constants import c as c_sl
 import astropy.units as u
 from ..physics.stars import stellar_radius_approximation
 
@@ -229,3 +230,233 @@ def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*,
         return integrate_74(rmax.to("pc"))-integrate_74(rmin.to("pc"))
     else:
         return integrate_func(rmax.to("pc"))-integrate_func(rmin.to("pc")) 
+
+
+
+def Mdot_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    Number of collisions for a no black hole power law system
+    """ 
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+    Massratio = Mcollisions/Mstar
+    # eccentricity functions
+    F1 = f1 * rc**2
+    F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+    cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    #outer prefactor
+    pref_num1 = np.pi * G**2 * ts * fimf * (Mstar+Mcollisions) *Massratio * coulomb
+    pref_denom1 = 0.34 * Mstar
+    pref_num2 = np.pi * ts * fimf * reduced_mass* Massratio *G * coulomb * (3-alpha) * (Mstar+Mcollisions)
+    pref_denom2 = 0.34 *( (Mstar**2/rstar)+(Mcollisions**2/rcollisions))*Mstar
+    def integrate_func1(r):
+        result  = pref_num1 / pref_denom1 * F1 * (3-alpha)*(1+alpha)**2/cv/G *crho**2 /(1-2*alpha) * r**(1-2*alpha)
+        return result.cgs
+    def integrate_func2(r):
+        result = pref_num1 / pref_denom1 * F2 * (3-alpha)*(1+alpha)/cv**2/G**2 * crho**2/cm/(-alpha-1)* r**(-1-alpha)
+        return result.cgs
+    def integrate_func3(r):
+        result = pref_num2 / pref_denom2 * F1 * (3-alpha)*crho**2 * cm /(3-3*alpha)*r**(3-3*alpha)
+        return result.cgs
+    def integrate_func4(r):
+        result = pref_num2 / pref_denom2 * F2 *(3-alpha)*(1+alpha)/cv/G *crho**2 /(1-2*alpha) * r**(1-2*alpha)
+        return result.cgs
+    def integrate_func(r):
+        result = integrate_func1(r)+integrate_func2(r)-integrate_func3(r)-integrate_func4(r)
+        return result.cgs
+    return integrate_func(rmax.to("pc"))-integrate_func(rmin.to("pc")) 
+
+
+def dMdotdr_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    Number of collisions for a no black hole power law system
+    """ 
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+    Massratio = Mcollisions/Mstar
+    # eccentricity functions
+    F1 = f1 * rc**2
+    F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+    cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    #outer prefactor
+    pref_num1 = np.pi * G**2 * ts * fimf * (Mstar+Mcollisions) *Massratio * coulomb
+    pref_denom1 = 0.34 * Mstar
+    pref_num2 = np.pi * ts * fimf * reduced_mass* Massratio *G * coulomb * (3-alpha) * (Mstar+Mcollisions)
+    pref_denom2 = 0.34 *( (Mstar**2/rstar)+(Mcollisions**2/rcollisions))*Mstar
+    def integrate_func1(r):
+        result  = pref_num1 / pref_denom1 * F1 * (3-alpha)*(1+alpha)/cv/G *crho**2 * r**(-2*alpha)
+        return result.cgs
+    def integrate_func2(r):
+        result = pref_num1 / pref_denom1 * F2 * (3-alpha)*(1+alpha)/cv**2/G**2 * crho**2/cm* r**(-2-alpha)
+        return result.cgs
+    def integrate_func3(r):
+        result = pref_num2 / pref_denom2 * F1 * (3-alpha)*crho**2 * cm *r**(2-3*alpha)
+        return result.cgs
+    def integrate_func4(r):
+        result = pref_num2 / pref_denom2 * F2 *(3-alpha)*(1+alpha)/cv/G *crho**2  * r**(-2*alpha)
+        return result.cgs
+    def integrate_func(r):
+        result = integrate_func1(r)+integrate_func2(r)-integrate_func3(r)-integrate_func4(r)
+        return result.cgs
+    return integrate_func(rmax.to("pc"))-integrate_func(rmin.to("pc")) 
+
+
+
+
+def Ncoll_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    Number of collisions for a no black hole power law system to first order + sticky spheres
+    """
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    cross_section = np.pi * rc**2.
+    cm = 4. * np.pi * rho0/(3.-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    N0 = 4. * np.pi * cross_section *ts/ (Mstar**2.) *np.sqrt(G* cv/(1.+alpha)) *crho**2.*np.sqrt(cm)*1./(4.-(5.*alpha/2.))
+    def integral(r):
+        return N0 * r**(4.-(5.*alpha/2.))
+    result =  integral(rmax).cgs-integral(rmin).cgs
+    return result.cgs
+
+def Mdot_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """ Mass rate first order and sticky spheres""" 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    cross_section = np.pi * rc**2.
+    cm = 4. * np.pi * rho0/(3.-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    N0 = 4. * np.pi * cross_section *ts/ (Mstar**2.) *np.sqrt(G* cv/(1.+alpha)) *crho**2*np.sqrt(cm)*1./(4.-(5.*alpha/2.))
+    tdf_avg = average_tdf(rmin,rmax,coulomb,cv, Mstar,Mcollisions,cm,crho,alpha)
+    # print(tdf_avg.to('yr'))
+    def integral(r):
+        result = N0 * 2 *Mstar/tdf_avg * r**(4-(5*alpha/2))
+        return result.cgs 
+    result = integral(rmax)-integral(rmin)
+    return result.cgs
+
+def Mdot_deplete_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """ Mass rate first order and sticky spheres""" 
+    Mdf = Mdot_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mstar = Mstar,Mcollisions=Mcollisions, e =e,rmax = rmax, rmin = rmin)
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    cross_section = np.pi * rc**2.
+    cm = 4. * np.pi * rho0/(3.-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    tdf_avg = average_tdf(rmin,rmax,coulomb,cv, Mstar,Mcollisions,cm,crho,alpha)
+    result = Mdf * Mcollisions/(2*Mstar) * tdf_avg/ts
+    return result.cgs
+
+def average_tdf(rmin,rmax,coulomb, cv,Mstar,Mcollisions,cm,crho, alpha):
+    q = Mstar/Mcollisions
+    box = 1/(rmax-rmin) * 0.34*q / G**2 /Mstar/coulomb
+    triangle = box * (cv * G*(1+alpha))**(3./2.)
+    def integral(r):
+        final = triangle *(cm**1.5/crho)*(1./(4.-(alpha/2.)))*(r**(4.-(alpha/2.)))
+        return final.to('s') 
+    return integral(rmax)-integral(rmin)
+
+
+def Mdot_deplete_noBH_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    The full depletion rate using the collisions timescale (equation 108 in my document)
+    """ 
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+    Massratio = Mcollisions/Mstar
+    # eccentricity functions
+    F1 = f1 * rc**2
+    F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+    cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    D=(G*Mstar**2/rstar)+(G* Mcollisions**2/rcollisions)
+    #outer prefactor
+    pref = 4. * np.pi**2 * (Mstar+Mcollisions) *fimf *crho**2/(Mstar**2)
+    
+    def integrate_func1(r):
+        pref_1 = (F1 -(F2 * reduced_mass/D))*(cv * G /(1.+alpha))**0.5 *cm**0.5 * 1./(4.-(5.*alpha/2.))
+        result = pref_1 * r**(4.-(5.*alpha/2.))
+        return result.cgs
+    def integrate_func2(r):
+        pref_2 = F1 *reduced_mass/D *(cv * G /(1.+alpha))**1.5*cm**1.5 * 1./(6.-(7.*alpha/2.))
+        result = pref_2 * r**(6.-(7.*alpha/2.))
+        return result.cgs
+    def integrate_func3(r):
+        pref_3 = F2*(cv * G /(1.+alpha))**(-0.5)*cm**(-0.5) *1./(2.-(3.*alpha/2.))
+        result = pref_3 * r**(2.-(3.*alpha/2.))
+        return result.cgs
+    def integrate_func(r):
+        result = integrate_func1(r)-integrate_func2(r)+integrate_func3(r)
+        return pref * result
+    result = integrate_func(rmax)-integrate_func(rmin)
+    return result.cgs
+
+
+# def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mtot, Rtot,*,
+#                                 mubb= 0.17507,mubs =0.153619, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+#     """ Mass outflow/inflow rate due to binary heating. My equation 114"""
+#     #Calculations 
+#     rstar = stellar_radius_approximation(Mstar)
+#     rcollisions = stellar_radius_approximation(Mcollisions)
+#     rc = (rstar+rcollisions).to(u.Rsun)
+#     f1,f2 = get_ecc_functions(e,alpha) 
+#     Massratio = Mcollisions/Mstar
+#     cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+#     crho = rho0/(r0**(-alpha))
+#     pref = 4 * np.pi * G * Mstar**2 * Rtot / ( Mtot**2 ) * (mubs+mubb) *((1+alpha)/cv/G)**0.5 * cm**(-0.5) * crho **2 / (2.-(3.*alpha/2.))
+#     def integrate_func(r):
+#         result  = pref * r**(2.-(3.*alpha/2.))
+#         return result.cgs
+#     result  = integrate_func(rmax)-integrate_func(rmin)
+#     return result.cgs
+
+def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mtot, Rtot,*,
+                                mubb= 0.17507,mubs =0.153619,sigma = 20*u.km/u.s, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """ delta phi versionversion Mass outflow/inflow rate due to binary heating. My equation 114"""
+
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+    Massratio = Mcollisions/Mstar
+    cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    pref = 4 * np.pi  * Mstar *G**2/((3*sigma)**2) * (mubs+mubb) *((1+alpha)/cv/G)**0.5 * cm**(-0.5) * crho **2 / (2.-(3.*alpha/2.))
+    def integrate_func(r):
+        result  = pref * r**(2.-(3.*alpha/2.))
+        return result.cgs
+    result  = integrate_func(rmax)-integrate_func(rmin)
+    return result.cgs
+
+# def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mtot, Rtot,*,
+#                                 mubb= 0.17507,mubs =0.153619, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+#     """c ^2 version Mass outflow/inflow rate due to binary heating. My equation 114"""
+
+#     #Calculations 
+#     rstar = stellar_radius_approximation(Mstar)
+#     rcollisions = stellar_radius_approximation(Mcollisions)
+#     rc = (rstar+rcollisions).to(u.Rsun)
+#     f1,f2 = get_ecc_functions(e,alpha) 
+#     Massratio = Mcollisions/Mstar
+#     cm = 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+#     crho = rho0/(r0**(-alpha))
+#     pref = 4 * np.pi  * Mstar *G**2/(c_sl**2) * (mubs+mubb) *((1+alpha)/cv/G)**0.5 * cm**(-0.5) * crho **2 / (2.-(3.*alpha/2.))
+#     def integrate_func(r):
+#         result  = pref * r**(2.-(3.*alpha/2.))
+#         return result.cgs
+#     result  = integrate_func(rmax)-integrate_func(rmin)
+#     return result.cgs
