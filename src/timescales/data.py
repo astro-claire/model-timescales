@@ -13,6 +13,7 @@ def build_bulk_energy_grid(masses: Quantity,
                            energy_unit=u.erg,
                            ratio_max=15,           # if set (e.g., 10), keep only (-U/K) <= ratio_max
                            bound_only=True,          # if True, drop systems with K+U >= 0
+                           cutoff_density = None,
                            return_mask=False):
     """
     Create aligned 1D arrays for all (M, R, V) combos and their energies.
@@ -48,6 +49,10 @@ def build_bulk_energy_grid(masses: Quantity,
     if ratio_max is not None:
         # When applying the threshold, require r to be finite
         mask &= np.isfinite(r) & (r <= ratio_max)
+    
+    rho = M/(4.*np.pi/3 *(R**3))
+    if cutoff_density is not None:
+        mask &= rho<cutoff_density
 
     # Filter all arrays
     out = {
