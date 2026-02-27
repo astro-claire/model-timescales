@@ -45,36 +45,92 @@ def dynamical_friction_timescale(v, rho,*,
 
 def stellar_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0, cv =1.):
     cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    crho = rho0/(r0**(-alpha))
+    c_rho = rho0/(r0**(-alpha))
+    massratio = Mcollisions/Mstar
     A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A2 = ((1+alpha)/(cv * c.G))**(3./2)
     A = A1*A2
     return (A/cm *(r)**(3.-(alpha/2.))).to('yr')
 
 
 def bh_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0,MBH, cv =1.):
     cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    crho = rho0/(r0**(-alpha))
+    c_rho = rho0/(r0**(-alpha))
+    massratio = Mcollisions/Mstar
     A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A2 = ((1+alpha)/(cv * c.G))**(3./2)
     A = A1*A2
     return (A/M_BH *(r)**(alpha-(3./2.))).to('yr')
 
 
-def stellar_df_radius(r,td, Mstar,coulomb, Mcollisions,alpha,r0,rho0, cv =1.):
-    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    crho = rho0/(r0**(-alpha))
-    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(c_v * G))**(3/2)
-    A = A1*A2
-    return ((A*td/cm)**(1/(3.-(alpha/2.)))).to('pc')
+def stellar_df_radius(td, Mstar, lnLambda, Mcollisions, alpha, r0, rho0, cv=1.0):
+    """
+    Stellar-dominated DF radius from t_df(r)=t_d using the power-law model.
+    Computes in CGS to avoid fractional-power unit chaos.
+    """
+    G = c.G
+    td   = td.to(u.s)
+    Mstar = Mstar.to(u.g)
+    Mi   = Mcollisions.to(u.g)
+    r0   = r0.to(u.cm)
+    rho0 = rho0.to(u.g/u.cm**3)
+    Gc   = G.cgs
+
+    # rho(r) = rho0 (r/r0)^(-alpha) = c_rho r^(-alpha)
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+
+    # M(r) = c_M r^(3-alpha), with c_M = 4π c_rho/(3-alpha)
+    c_M = (4*np.pi * c_rho / (3 - alpha)).to(u.g * u.cm**(alpha - 3))
+
+    q = (Mi / Mstar).decompose().value  # dimensionless
+
+    # RHS for r^(3 - alpha/2)
+    RHS = (Gc**2 * Mstar * td * lnLambda) / (0.34 * q)
+    RHS *= c_rho / ((cv * Gc / (1 + alpha))**(3/2) * c_M**(3/2))
+
+    # enforce expected units before taking the power
+    RHS = RHS.to(u.cm**(3 - alpha/2))
+
+    r = RHS**(1 / (3 - alpha/2))
+    return r.to(u.pc)
 
 
+def bh_df_radius(td, Mstar, lnLambda, Mcollisions, alpha, r0, rho0, MBH, cv=1.0):
+    """
+    BH-dominated DF radius from t_df(r)=t_d in the regime MBH >> M(r).
 
-def bh_df_radius(r,td,Mstar,coulomb, Mcollisions,alpha,r0,rho0,MBH, cv =1.):
-    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    crho = rho0/(r0**(-alpha))
-    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(c_v * G))**(3/2)
-    A = A1*A2
-    return ((A*td/M_BH)**(1/(alpha-(3./2.)))).to('pc')
+    Returns the radius implied by the inequality; note:
+    - if alpha > 3/2, this is an *upper* bound (maximum radius to sink within td)
+    - if alpha < 3/2, the inequality gives a *lower* bound (friction speeds up inward),
+      so interpreting this as "maximum radius" is not correct.
+    """
+    G = c.G
+    # --- force CGS early ---
+    td    = td.to(u.s)
+    Mstar = Mstar.to(u.g)
+    Mi    = Mcollisions.to(u.g)
+    MBH   = MBH.to(u.g)
+    r0    = r0.to(u.cm)
+    rho0  = rho0.to(u.g/u.cm**3)
+    Gc    = G.cgs
+
+    # rho(r) = rho0 (r/r0)^(-alpha) = c_rho r^(-alpha)
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+
+    q = (Mi / Mstar).decompose().value  # dimensionless
+
+    # RHS for r^(alpha - 3/2)
+    RHS = (Gc**2 * Mstar * td * lnLambda) / (0.34 * q)
+    RHS *= c_rho / ((cv * Gc / (1 + alpha))**(3/2) * MBH**(3/2))
+
+    # enforce expected units before fractional power
+    RHS = RHS.to(u.cm**(alpha - 3/2))
+
+    expo = (alpha - 1.5)
+    if np.isclose(expo, 0.0):
+        # alpha = 3/2 => condition becomes independent of r in this approximation
+        # (either always satisfies or never satisfies depending on parameters)
+        return np.inf * u.pc
+
+    r = RHS**(1 / expo)
+    return r.to(u.pc)
