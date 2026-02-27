@@ -460,3 +460,325 @@ def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mto
 #         return result.cgs
 #     result  = integrate_func(rmax)-integrate_func(rmin)
 #     return result.cgs
+
+
+import numpy as np
+import astropy.units as u
+from astropy.constants import G
+from scipy.special import hyp2f1
+
+def Mdot_df_withbh(r0, td, alpha, cv, rho0, fimf, MBH, lnLambda, *,
+                   Mstar=1.0*u.Msun,
+                   Mcollisions=1.0*u.Msun,
+                   e=0.0,
+                   rmax=1e10*u.pc,
+                   rmin=1000*u.Rsun,
+                   q=None):
+    """
+    Mass dynamical-friction rate with a central BH, using the closed-form
+    hypergeometric expressions.
+
+    Parameters
+    ----------
+    r0 : Quantity [length]
+        Reference radius for the density normalization (rho = rho0 (r/r0)^(-alpha)).
+    td : Quantity [time]
+        Disruption time.
+    alpha : float
+        Density slope (rho ∝ r^{-alpha}).
+    cv : float
+        Dimensionless coefficient in sigma^2 = (cv G/(1+alpha)) (M(r)+MBH)/r.
+    rho0 : Quantity [mass/length^3]
+        Density at r0.
+    fimf : float
+        IMF fraction f^{IMF}_{M_*}.
+    MBH : Quantity [mass]
+        Central black hole mass.
+    lnLambda : float
+        Coulomb logarithm ln Λ.
+    Mstar : Quantity [mass]
+        Stellar mass M_*.
+    Mcollisions : Quantity [mass]
+        Mass of the inspiraling/colliding object M_i.
+    e : float
+        Eccentricity parameter passed to get_ecc_functions.
+    rmax : Quantity [length]
+        Upper limit r_df (your r_df).
+    rmin : Quantity [length]
+        Lower limit r_min.
+    q : float, optional
+        Dimensionless factor multiplying t_relax to get t_df. If None,
+        defaults to Mcollisions/Mstar.
+
+    Returns
+    -------
+    mdot : Quantity [mass/time]
+        Evaluated \dot{M} from rmin to rmax.
+    """
+
+    # ---------- sanity / units ----------
+    r0 = r0.to(u.cm)
+    rmin = rmin.to(u.cm)
+    rdf = rmax.to(u.cm)
+    td = td.to(u.s)
+    rho0 = rho0.to(u.g/u.cm**3)
+    Mstar = Mstar.to(u.g)
+    Mcollisions = Mcollisions.to(u.g)
+    MBH = MBH.to(u.g)
+
+    if q is None:
+        q = (Mcollisions / Mstar).decompose().value
+    else:
+        q = float(q)
+
+    # ---------- collision radius + eccentricity functions ----------
+    # you already have these helpers in your codebase
+    rstar = stellar_radius_approximation(Mstar.to(u.Msun))
+    rcoll = stellar_radius_approximation(Mcollisions.to(u.Msun))
+    rc = (rstar + rcoll).to(u.cm)
+
+    f1, f2 = get_ecc_functions(e, alpha)
+
+    # eccentricity functions as in your earlier code
+    F1 = (f1 * rc**2).to(u.cm**2)
+    F2 = (2.0 * G * f2 * rc * (Mstar + Mcollisions)).to(u.cm**4/u.s**2)  # (G M L) has units L^4/T^2
+
+    # ---------- constants c_rho, c_M ----------
+    # rho(r) = c_rho r^{-alpha} with c_rho = rho0 * r0^alpha
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+
+    # M(r) = c_M r^{3-alpha} with c_M = 4π c_rho/(3-alpha)
+    c_M = (4.0 * np.pi * c_rho / (3.0 - alpha)).to(u.g * u.cm**(alpha - 3))
+
+    # convenient sigma^2 prefactor: sigma^2 = (cv G/(1+alpha)) (M(r)+MBH)/r
+    # note: keep as Quantity
+    sigma2_pref = (cv * G / (1.0 + alpha)).to(u.cm**3/(u.g*u.s**2))
+
+    # reduced mass mu (has units of mass, needed for your energy ratio term)
+    mu = (Mstar * Mcollisions / (Mstar + Mcollisions)).to(u.g)
+
+    # A ≡ G Mi^2/Ri + G M_*^2/R_* (you used this combo repeatedly)
+    # Here I assume Ri ~ R_coll object radius and R_* ~ stellar radius from your approximation
+    Ri = rcoll.to(u.cm)
+    Rstar = rstar.to(u.cm)
+    A = (G * Mcollisions**2 / Ri + G * Mstar**2 / Rstar).to(u.cm**2 * u.g / u.s**2)  # energy units
+
+    # ---------- hypergeometric building blocks ----------
+    beta = 3.0 - alpha
+
+    def z_of_r(r):
+        # z = - c_M r^{3-alpha} / MBH (dimensionless)
+        return (-(c_M * r**beta / MBH).decompose().value)
+
+    # I1: ∫ r^{3-3α} (c_M r^{3-α} + MBH)^{-1} dr, as used in your mdot expression
+    # antiderivative: r^{4-3α}/(MBH(4-3α)) * 2F1(1, (4-3α)/β; (7-4α)/β; z)
+    def antideriv_I1(r):
+        denom = (4.0 - 3.0*alpha)
+        a = 1.0
+        b = (4.0 - 3.0*alpha)/beta
+        c = (7.0 - 4.0*alpha)/beta
+        zz = z_of_r(r)
+        pref = (r**(4.0 - 3.0*alpha) / (MBH * denom)).to(u.cm**(4.0 - 3.0*alpha) / u.g)
+        return pref * hyp2f1(a, b, c, zz)
+
+    # I2: ∫ r^{4-3α} (c_M r^{3-α} + MBH)^{-2} dr
+    # antiderivative: r^{5-3α}/(MBH^2(5-3α)) * 2F1(2, (5-3α)/β; (8-4α)/β; z)
+    def antideriv_I2(r):
+        denom = (5.0 - 3.0*alpha)
+        a = 2.0
+        b = (5.0 - 3.0*alpha)/beta
+        c = (8.0 - 4.0*alpha)/beta
+        zz = z_of_r(r)
+        pref = (r**(5.0 - 3.0*alpha) / (MBH**2 * denom)).to(u.cm**(5.0 - 3.0*alpha) / u.g**2)
+        return pref * hyp2f1(a, b, c, zz)
+
+    # I3: ∫ r^{2-3α} dr = r^{3-3α}/(3-3α)
+    def antideriv_I3(r):
+        denom = (3.0 - 3.0*alpha)
+        return (r**(3.0 - 3.0*alpha) / denom).to(u.cm**(3.0 - 3.0*alpha))
+
+    # Evaluate definite integrals
+    I1 = antideriv_I1(rdf) - antideriv_I1(rmin)
+    I2 = antideriv_I2(rdf) - antideriv_I2(rmin)
+    I3 = antideriv_I3(rdf) - antideriv_I3(rmin)
+
+    # ---------- assemble prefactors exactly as in your latex ----------
+    common1 = (np.pi * G**2 * td * fimf * (Mstar + Mcollisions) * q * lnLambda * (3.0 - alpha) / (0.34 * Mstar)).to(
+        u.cm**6 / (u.g**2 * u.s**3) * u.s * u.g / u.g
+    )
+    # We’ll trust astropy to simplify; final mdot will be coerced to mass/time at end.
+
+    # (cv G/(1+alpha))^{-1} and ^{-2}
+    sigfac_m1 = (sigma2_pref)**(-1)  # units g s^2 / cm^3
+    sigfac_m2 = (sigma2_pref)**(-2)
+
+    # term 1 (F1 * ... * I1)
+    term1 = common1 * F1 * sigfac_m1 * (c_rho**2) * c_M * I1
+
+    # term 2 (F2 * ... * I2)
+    term2 = common1 * F2 * sigfac_m2 * (c_rho**2) * c_M * I2
+
+    # mu-terms prefactor
+    common_mu = (np.pi * G * td * fimf * mu * (Mstar + Mcollisions) * q * lnLambda * (3.0 - alpha) /
+                 (0.34 * A * Mstar)).to(
+        1/u.s
+    )  # this coercion may be too aggressive; we’ll handle at end.
+
+    # term 3: - common_mu * F1 * c_rho^2 c_M * I3
+    term3 = -common_mu * F1 * (c_rho**2) * c_M * I3
+
+    # term 4: - common_mu * F2 * (cvG/(1+alpha))^{-1} * c_rho^2 c_M * I1
+    term4 = -common_mu * F2 * sigfac_m1 * (c_rho**2) * c_M * I1
+
+    mdot = (term1 + term2 + term3 + term4)
+
+    # Try to coerce to a clean mass/time unit for output
+    return mdot.to(u.Msun/u.yr)
+
+
+
+def Mdot_dep_withbh(r0, td, alpha, cv, rho0, fimf, MBH, lnLambda, *, 
+                    Mstar=1.0*u.Msun,
+                    Mcollisions=1.0*u.Msun,
+                    e=0.0,
+                    rmax=1e10*u.pc,
+                    rmin=1000*u.Rsun):
+    """
+    Depletion/encounter-driven mass rate with a central BH, using the closed-form
+    hypergeometric expressions you derived:
+
+        dot{M}_dep = (4π^2 (M_*+M_i) f_IMF / M_*^2) * [ ... ] |_{rmin}^{rdf}
+
+    Notes / Assumptions
+    -------------------
+    - rho(r) = rho0 * (r/r0)^(-alpha) = c_rho * r^(-alpha), with c_rho = rho0 * r0^alpha
+    - M(r) = c_M r^(3-alpha), with c_M = 4π c_rho/(3-alpha)
+    - sigma^2(r) = (cv G/((1+alpha) r)) * (M(r) + MBH)
+    - F1(e) and F2(e) are built from get_ecc_functions(e, alpha) exactly as in your earlier code:
+        F1 = f1 * r_c^2
+        F2 = 2 G f2 r_c (M_* + M_i)
+      where r_c is the sum of radii of the interacting bodies.
+
+    Parameters
+    ----------
+    r0 : Quantity[length]
+    td : Quantity[time]
+    alpha : float
+    cv : float
+    rho0 : Quantity[mass/length^3]
+    fimf : float
+    MBH : Quantity[mass]
+    lnLambda : float, optional
+        Not used in this dot{M}_dep expression (kept only for signature similarity).
+    Mstar : Quantity[mass]
+    Mcollisions : Quantity[mass]  (this is your M_i)
+    e : float
+    rmax : Quantity[length]   (this is your r_df / r_df-like upper limit; called rdf in latex)
+    rmin : Quantity[length]
+
+    Returns
+    -------
+    mdot_dep : Quantity[mass/time]
+    """
+
+    # --- normalize units ---
+    r0 = r0.to(u.cm)
+    rmin = rmin.to(u.cm)
+    rdf = rmax.to(u.cm)
+    td = td.to(u.s)
+    rho0 = rho0.to(u.g/u.cm**3)
+    Mstar = Mstar.to(u.g)
+    Mi = Mcollisions.to(u.g)
+    MBH = MBH.to(u.g)
+
+    # --- radii + eccentricity functions ---
+    rstar = stellar_radius_approximation(Mstar.to(u.Msun)).to(u.cm)
+    ri = stellar_radius_approximation(Mcollisions.to(u.Msun)).to(u.cm)
+    rc = (rstar + ri).to(u.cm)
+
+    f1, f2 = get_ecc_functions(e, alpha)
+
+    F1 = (f1 * rc**2).to(u.cm**2)
+    F2 = (2.0 * G * f2 * rc * (Mstar + Mi)).to(u.cm**4/u.s**2)
+
+    # --- c_rho, c_M ---
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+    c_M = (4.0 * np.pi * c_rho / (3.0 - alpha)).to(u.g * u.cm**(alpha - 3))
+
+    beta = 3.0 - alpha
+
+    # sigma^2 prefactor (Quantity):
+    sigma2_pref = (cv * G / (1.0 + alpha)).to(u.cm**3/(u.g*u.s**2))
+
+    # reduced mass mu:
+    mu = (Mstar * Mi / (Mstar + Mi)).to(u.g)
+
+    # A ≡ G Mi^2/Ri + G M_*^2/R_* (energy-like)
+    A = (G * Mi**2 / ri + G * Mstar**2 / rstar).to(u.cm**2 * u.g / u.s**2)
+
+    # dimensionless argument z(r) = -c_M r^(3-alpha)/MBH
+    def z_of_r(r):
+        return (-(c_M * r**beta / MBH).decompose().value)
+
+    # --- antiderivatives for the three needed integrals ---
+    # Generic identity used:
+    # ∫ r^(m-1) (1 + k r^beta)^p dr = r^m/m * 2F1(-p, m/beta; 1+m/beta; -k r^beta)
+    # Here (c_M r^beta + MBH)^p = MBH^p (1 + (c_M/MBH) r^beta)^p
+
+    def antideriv_J1(r):
+        # ∫ r^(3/2-2α) (c_M r^β + MBH)^(+1/2) dr
+        m = 5.0/2.0 - 2.0*alpha
+        p = +0.5
+        a = -p                       # -1/2
+        b = m / beta
+        c = 1.0 + b                  # (11/2 - 3α)/(3-α)
+        zz = z_of_r(r)
+        pref = (MBH**p * r**m / m).to(u.g**0.5 * u.cm**m)
+        return pref * hyp2f1(a, b, c, zz)
+
+    def antideriv_J2(r):
+        # ∫ r^(1/2-2α) (c_M r^β + MBH)^(+3/2) dr
+        m = 3.0/2.0 - 2.0*alpha
+        p = +1.5
+        a = -p                       # -3/2
+        b = m / beta
+        c = 1.0 + b                  # (9/2 - 3α)/(3-α)
+        zz = z_of_r(r)
+        pref = (MBH**p * r**m / m).to(u.g**1.5 * u.cm**m)
+        return pref * hyp2f1(a, b, c, zz)
+
+    def antideriv_J3(r):
+        # ∫ r^(5/2-2α) (c_M r^β + MBH)^(-1/2) dr
+        m = 7.0/2.0 - 2.0*alpha
+        p = -0.5
+        a = -p                       # +1/2
+        b = m / beta
+        c = 1.0 + b                  # (13/2 - 3α)/(3-α)
+        zz = z_of_r(r)
+        pref = (MBH**p * r**m / m).to(u.g**(-0.5) * u.cm**m)
+        return pref * hyp2f1(a, b, c, zz)
+
+    # definite integrals
+    J1 = antideriv_J1(rdf) - antideriv_J1(rmin)
+    J2 = antideriv_J2(rdf) - antideriv_J2(rmin)
+    J3 = antideriv_J3(rdf) - antideriv_J3(rmin)
+
+    # --- assemble the bracket exactly like your latex ---
+    # factors of (cv G/(1+alpha))^(±1/2, ±3/2)
+    sig_half_p1 = (sigma2_pref)**(0.5)
+    sig_half_m1 = (sigma2_pref)**(-0.5)
+    sig_3half_p = (sigma2_pref)**(1.5)
+
+    # bracket pieces
+    coeff_mix = (F1 - F2 * (mu / A))  # has units cm^2 (since F2*(mu/A) -> cm^2)
+    termA = coeff_mix * (c_rho**2) * sig_half_p1 * J1
+    termB = -F1 * (mu / A) * (c_rho**2) * sig_3half_p * J2
+    termC = +F2 * (c_rho**2) * sig_half_m1 * J3
+
+    bracket = termA + termB + termC
+
+    prefactor = (4.0 * np.pi**2 * (Mstar + Mi) * fimf / (Mstar**2)).to(1/u.g)
+
+    mdot_dep = (prefactor * bracket ).to(u.g/u.s)  # /td gives mass/time
+
+    return mdot_dep.to(u.Msun/u.yr)
