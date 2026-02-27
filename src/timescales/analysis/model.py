@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system, condition_test
-from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits
+from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits,Mdot_df_withbh
 from .recipes import per_system_comparison, destructive_colllision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
@@ -29,7 +29,8 @@ def create_dynamical_model_integral(ensemble,*,
                         mass_fraction_retained = .01, 
                         mass_accretion_ratio = 0.5,
                         f_vms = 2e-2, 
-                        t_dist_cc = None
+                        t_dist_cc = None,
+                        timescale_override = None
                             ):
     """ 
     Create dynamical model using exact integral
@@ -90,12 +91,14 @@ def create_dynamical_model_integral(ensemble,*,
         t_merger = _get_t_merger(all_possible_kwargs,sys_id, ensemble, verbose = verbose).to('yr')
         out['t_merger'].append(t_merger)
         #find out what's the limiting time for the system:
-        minimum_disruption_time.append(min([t_merger,t_ms,t_universe]))
+        disrupt_list = [t_merger,t_ms,t_universe]
         if t_dist_cc is not None: 
             tsc = get_system(timescales_by_radius, sys_id)
-            t_relax = tsc['t_relax'][-1]
-            minimum_disruption_time.append(t_relax*0.2)
-            print(t_relax)
+            t_relax = tsc['t_relax'][-1] #should I change this to the half mass radius? 
+            disrupt_list.append(t_relax*0.2)
+        if timescale_override is not None: 
+            disrupt_list.append(timescale_override)
+        minimum_disruption_time.append(min(disrupt_list))
         which_disruption_time.append([t_merger,t_ms,t_universe].index(min([t_merger,t_ms,t_universe])))
     out['which_disruption_time']=which_disruption_time
     out['minimum_disruption_time']= minimum_disruption_time
@@ -135,6 +138,9 @@ def create_dynamical_model_integral(ensemble,*,
         out['rho0'][sys_id]= prof.rho0
         cv = prof.get_veldisp_constant()
         ts = minimum_disruption_time[sys_id]
+        #------------
+        #Calculate the base number of collisions in the whole object
+        #------------
         if "BH" in ensemble.densityModel:
             out['N_collisions'][sys_id] = N_coll_bh_limits(prof.r0, 
                                     ts, 
@@ -158,6 +164,9 @@ def create_dynamical_model_integral(ensemble,*,
                                     Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
                                     rmin =rmin,
                                     e =  ensemble.timescales_kwargs["e"])
+        #------------
+        #Calculate whether the system has mass loss - if so calculate the number of collisions that contribute to mass loss
+        #------------
         sys_massloss = get_system(massloss_byradius, sys_id) #TODO change this to the analytic formula?
         massloss = np.array(sys_massloss['massloss'])
         ml_idx = np.where(massloss==1)[0]
@@ -189,7 +198,9 @@ def create_dynamical_model_integral(ensemble,*,
                                         e = ensemble.timescales_kwargs["e"],
                                         rmin =rmin,
                                         rmax = radiusml)
-        #That was total ncol, let's consider where dynamical friction will bring sticky spheres to the middle
+        #------------
+        #Calculate the dynamical friction radius 
+        #------------        
         sys_df = get_system(timescales_by_radius,sys_id)
         sticky_tdf= sys_df['stickytdf'] * u.yr
         newts = min(ts, main_sequence_lifetime_approximation(2*ensemble.Mstar))
@@ -201,6 +212,15 @@ def create_dynamical_model_integral(ensemble,*,
         if len(where_stickydf>1):
             out['fraction_sticky'][sys_id] = float(where_stickydf[-1])/ensemble.Nsampling
             r_stickydf = ensemble.radii[sys_id][where_stickydf[-1]] #rmax of dynamical friction region
+            if len(ml_idx)>1:
+                print((r_stickydf/radiusml).cgs)
+                r_bhsphere = 1*u.pc
+                if (r_stickydf/radiusml).cgs>1:
+                    print("OUTSIDE OF ML RADIUS")
+                if (r_stickydf/r_bhsphere).cgs>1:
+                    print("DF OUTSIDE OF SPHERE ")
+                else:
+                    print("DF NOT OUT OF SPHERE")
             if "BH" in ensemble.densityModel:
                 out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
                                         newts, 
@@ -214,6 +234,47 @@ def create_dynamical_model_integral(ensemble,*,
                                         rmin =rmin,
                                         rmax =r_stickydf,
                                         e = ensemble.timescales_kwargs["e"])
+                out['mass_df_rate'][sys_id] = Mdot_df_withbh(prof.r0,
+                                        newts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        ensemble.profile_kwargs['M_bh'],
+                                        coulomb_log,
+                                        Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmax =r_stickydf,
+                                        rmin =r_relax,
+                                        e = ensemble.timescales_kwargs["e"]).to(u.Msun/u.yr)
+                out['mass_binaries_rate'][sys_id]= Mdot_binaries_pl_limits(prof.r0,
+                                        newts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        reduced_mass, 
+                                        coulomb_log,
+                                        prof.enclosed_mass(r_stickydf),
+                                        r_stickydf,
+                                        Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmax =r_stickydf,
+                                        rmin =r_relax,
+                                        e = ensemble.timescales_kwargs["e"]).to(u.Msun/u.yr)
+                out['mass_depletion_rate'][sys_id] = Mdot_df_withbh(prof.r0,
+                                        newts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        ensemble.profile_kwargs['M_bh'],
+                                        coulomb_log,
+                                        Mstar = ensemble.timescales_kwargs["Mstar"],#1.0*u.Msun,
+                                        Mcollisions=ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmax =r_stickydf,
+                                        rmin =r_relax,
+                                        e = ensemble.timescales_kwargs["e"]).to(u.Msun/u.yr)
             else:
                 out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
                                         newts, 
@@ -229,6 +290,9 @@ def create_dynamical_model_integral(ensemble,*,
                 sys_data = get_system(denclosedmass_byradius, sys_id)
                 coulomb_log = coulomb_func(sys_data['Menc'][-1],sys_data['r'][-1],sys_data["sigma"][-1], Mstar = ensemble.timescales_kwargs["Mstar"])
                 # print((reduced_mass*np.array(sys_data["sigma"]*(u.km/u.s))**2/(GMR1+GMR2)).cgs)
+                #------------
+                #Calculate mass migration/accretion rates
+                #------------
                 out['mass_df_rate'][sys_id] = mass_accretion_ratio* Mdot_pl_no_bh_limits(prof.r0,
                                         newts, 
                                         prof.alpha, 
