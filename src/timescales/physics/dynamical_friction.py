@@ -41,3 +41,40 @@ def dynamical_friction_timescale(v, rho,*,
     massratio = Mstar/M_obj
     t_relax = relaxation_timescale(v,rho, Mstar, coulomb=10, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun)
     return t_relax * massratio
+
+
+def stellar_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0, cv =1.):
+    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
+    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A = A1*A2
+    return (A/cm *(r)**(3.-(alpha/2.))).to('yr')
+
+
+def bh_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0,MBH, cv =1.):
+    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
+    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A = A1*A2
+    return (A/M_BH *(r)**(alpha-(3./2.))).to('yr')
+
+
+def stellar_df_radius(r,td, Mstar,coulomb, Mcollisions,alpha,r0,rho0, cv =1.):
+    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
+    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A = A1*A2
+    return ((A*td/cm)**(1/(3.-(alpha/2.)))).to('pc')
+
+
+
+def bh_df_radius(r,td,Mstar,coulomb, Mcollisions,alpha,r0,rho0,MBH, cv =1.):
+    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
+    crho = rho0/(r0**(-alpha))
+    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
+    A2 = ((1+alpha)/(c_v * G))**(3/2)
+    A = A1*A2
+    return ((A*td/M_BH)**(1/(alpha-(3./2.)))).to('pc')
