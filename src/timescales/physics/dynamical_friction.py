@@ -43,24 +43,57 @@ def dynamical_friction_timescale(v, rho,*,
     return t_relax * massratio
 
 
-def stellar_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0, cv =1.):
-    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    c_rho = rho0/(r0**(-alpha))
-    massratio = Mcollisions/Mstar
-    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(cv * c.G))**(3./2)
-    A = A1*A2
-    return (A/cm *(r)**(3.-(alpha/2.))).to('yr')
+def stellar_df_time(r, Mstar, lnLambda, Mcollisions, alpha, r0, rho0, cv=1.0):
+    """
+    t_df(r) in the stellar-dominated regime: M(r) >> MBH.
+
+    """
+    G = c.G
+
+    # --- CGS ---
+    r     = r.to(u.cm)
+    r0    = r0.to(u.cm)
+    rho0  = rho0.to(u.g/u.cm**3)
+    Mstar = Mstar.to(u.g)
+    Mi    = Mcollisions.to(u.g)
+    Gc    = G.cgs
+
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+    c_M   = (4*np.pi * c_rho / (3 - alpha)).to(u.g * u.cm**(alpha - 3))
+
+    q = (Mi / Mstar).decompose().value
+
+    pref  = (0.34 * q) / (Gc**2 * Mstar * lnLambda)
+    scale = ((cv * Gc) / (1 + alpha))**(3/2) * (c_M**(3/2) / c_rho)
+
+    tdf = (pref * scale * r**(3 - alpha/2)).to(u.yr)
+    return tdf
 
 
-def bh_df_time(r,Mstar,coulomb, Mcollisions,alpha,r0,rho0,MBH, cv =1.):
-    cm= 4 * np.pi * rho0/(3-alpha)/(r0**(-alpha))
-    c_rho = rho0/(r0**(-alpha))
-    massratio = Mcollisions/Mstar
-    A1 = (c.G**2 * Mstar* coulomb)/(0.34 * massratio*c_rho)
-    A2 = ((1+alpha)/(cv * c.G))**(3./2)
-    A = A1*A2
-    return (A/M_BH *(r)**(alpha-(3./2.))).to('yr')
+def bh_df_time(r, Mstar, lnLambda, Mcollisions, alpha, r0, rho0, MBH, cv=1.0):
+    """
+    t_df(r) in the BH-dominated regime: MBH >> M(r).
+    """
+    G = c.G
+
+    # --- CGS ---
+    r    = r.to(u.cm)
+    r0   = r0.to(u.cm)
+    rho0 = rho0.to(u.g/u.cm**3)
+    Mstar = Mstar.to(u.g)
+    Mi   = Mcollisions.to(u.g)
+    MBH  = MBH.to(u.g)
+    Gc   = G.cgs
+
+    c_rho = (rho0 * r0**alpha).to(u.g * u.cm**(alpha - 3))
+
+    q = (Mi / Mstar).decompose().value  # dimensionless
+
+    pref = (0.34 * q) / (Gc**2 * Mstar * lnLambda)
+    scale = ((cv * Gc) / (1 + alpha))**(3/2) * (MBH**(3/2) / c_rho)
+
+    tdf = (pref * scale * r**(alpha - 3/2)).to(u.yr)
+    return tdf
 
 
 def stellar_df_radius(td, Mstar, lnLambda, Mcollisions, alpha, r0, rho0, cv=1.0):
