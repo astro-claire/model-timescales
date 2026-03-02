@@ -32,7 +32,7 @@ def create_dynamical_model_integral(ensemble,*,
                         z_final = 0,
                         mass_accretion_ratio = 0.5,
                         f_vms = 2e-2, 
-                        t_dist_cc = None,
+                        # t_dist_cc = None,
                         timescale_override = None
                             ):
     """ 
@@ -41,7 +41,7 @@ def create_dynamical_model_integral(ensemble,*,
     #get per radius information
     timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
-    massloss_byradius = destructive_colllision_criterion(ensemble)
+    # massloss_byradius = destructive_colllision_criterion(ensemble)
     timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
     # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
     
@@ -85,6 +85,7 @@ def create_dynamical_model_integral(ensemble,*,
     #now, iterate through all the systems to create the minimum disruption timescales
     minimum_disruption_time = []
     which_disruption_time = []
+    print(f"Getting disruption times for {ensemble.Nsystems} systems")
     for sys_id in range(ensemble.Nsystems):
         #calculate disruptive timescales:
         #First, main sequence
@@ -95,10 +96,9 @@ def create_dynamical_model_integral(ensemble,*,
         out['t_merger'].append(t_merger)
         #find out what's the limiting time for the system:
         disrupt_list = [t_merger,t_ms,t_universe]
-        if t_dist_cc is not None: 
-            tsc = get_system(timescales_by_radius, sys_id)
-            t_relax = tsc['t_relax'][-1]
-            disrupt_list.append(t_relax*0.2)
+        tsc = get_system(timescales_by_radius, sys_id)
+        t_relax = tsc['t_relax'][-1]
+        disrupt_list.append(t_relax*0.2)
         if timescale_override is not None: 
             disrupt_list.append(timescale_override)
         minimum_disruption_time.append(min(disrupt_list))
@@ -109,11 +109,12 @@ def create_dynamical_model_integral(ensemble,*,
     out['coll_occur_within_tmin'] = comparison['condition']
 
     coll_sys_id = np.where(out['coll_occur_within_tmin'])[0]
-    print("collisions occur in "+str(len(coll_sys_id))+" systems")
     #output empty lists
     out['N_collisions'] = [0]* ensemble.Nsystems
     out['rho0'] = [0]* ensemble.Nsystems
     out['M_BH'] = [0]* ensemble.Nsystems
+    out['Mdot_BH'] = [0]* ensemble.Nsystems
+    out['Mdot_Edd'] = [0]* ensemble.Nsystems
     out['M_VMS'] = [0]* ensemble.Nsystems #following Paccuci et al for this
     out['mass_fraction_retained'] = [0]* ensemble.Nsystems
     out['N_collisions_massloss']= [0]* ensemble.Nsystems
@@ -130,7 +131,7 @@ def create_dynamical_model_integral(ensemble,*,
         ensemble.timescales_kwargs['Mcollisions'] = 1.0*u.Msun
 
 
-
+    print(f"Integrating outputs for {ensemble.Nsystems} systems")
     for sys_id in range(ensemble.Nsystems):
         #system_properties
         prof = ensemble.profiles[sys_id]
@@ -156,7 +157,6 @@ def create_dynamical_model_integral(ensemble,*,
             if t_df_bh<t_df_stars:
                 r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant())
             else:
-                print("BH TIMESCALE LONGER")
                 r_df = bh_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0,ensemble.profile_kwargs['M_bh'], cv=prof.get_veldisp_constant())
             r_tidal = tidal_radius(ensemble.profile_kwargs['M_bh'], ensemble.timescales_kwargs["Mstar"]) #FIXME with the collisions raduys
             rmin = max(r_tidal, 2*stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"]))
@@ -178,7 +178,6 @@ def create_dynamical_model_integral(ensemble,*,
                                         rmax =r_df,
                                         e = ensemble.timescales_kwargs["e"])
             if r_ml>rmin:
-                print("ML inside relax")
                 out['N_collisions_ml'][sys_id] = N_coll_bh_limits(prof.r0,
                                         newts, 
                                         prof.alpha, 
@@ -194,14 +193,18 @@ def create_dynamical_model_integral(ensemble,*,
                 mass_encl= prof.enclosed_mass(r_ml)
                 if out['N_collisions_ml'][sys_id] *u.Msun >mass_encl:
                     masscoll = 0.5*mass_encl
-
                 else:
                     masscoll = out['N_collisions_ml'][sys_id] *u.Msun
                 out['rhotot_ml'][sys_id]=masscoll / (4*np.pi/3.*r_ml**3)
-                print(out['rhotot_ml'][sys_id].to(u.g/(u.cm**3)))
+
+                #Bondi Hoyle accretion onto the bh
+                c_s = np.sqrt(5./3. /3.* prof.velocity_dispersion(r_tidal)**2) #Take value inside sphere of influence
+                out['Mdot_BH'][sys_id] = np.pi * out['rhotot_ml'][sys_id] * c.G**2 * ensemble.profile_kwargs['M_bh']**2/(c_s**3)
+                out['Mdot_Edd'][sys_id] = 1e-8 * ( ensemble.profile_kwargs['M_bh'].to('Msun'))/u.yr
             else:
                 out['rhotot_ml'][sys_id] = 0*u.g/(u.cm**3)
-        else:
+        else: #STAR ONLY CASE
+            out['M_BH'][sys_id]= 0 *u.Msun
             #first we need to calculate the relevant radii
             r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant())
             rmin = 20000* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
@@ -209,7 +212,6 @@ def create_dynamical_model_integral(ensemble,*,
             # print(rtest)
             rmin = rtest
             rmin = r_no_relax(prof.rho0, prof.r0, ensemble.timescales_kwargs["Mstar"], coulomb_log, cv, prof.alpha)
-            print(rmin)
             # rmin = 2* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
             # rmin = 1e-2 * u.pc
             out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,
