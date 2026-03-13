@@ -129,6 +129,71 @@ def Ncoll_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcoll
         return integral(rmax.to("pc"))-integral(rmin.to("pc")) 
     # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
 
+def N_coll_no_bh_integrand(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    Number of collisions for a no black hole power law system INTEGRAND PORTION
+    """
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+
+    def integral(r):
+        prefactor = np.pi *ts * fimf * (3-alpha) / (Mstar**2)
+        # eccentricity functions
+        F1 = f1 * rc**2
+        F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+        #term prefactors
+        sqrt_term = cv * G / (1+alpha)
+        rhoterm1 = (4.* np.pi)**(3./2.) * (rho0**(5./2.)) / r0**(-5.*alpha/2.) * (3.- alpha)**(-3./2.)
+        rhoterm2 = (4.* np.pi)**(1./2.) * (rho0**(3./2.)) / r0**(-3.*alpha/2.) * (3.- alpha)**(-1./2.)
+        # The main r terms
+        r0term1 = (r**(3.-(5.*alpha/2)))
+        r0term2 = (r**(1.-(3.*alpha/2))) 
+        result = prefactor * ( (F1* np.sqrt(sqrt_term)*rhoterm1*r0term1).cgs+(F2 *(sqrt_term)**(-1./2.)*rhoterm2 *r0term2).cgs)
+        return result.cgs
+
+    # if alpha == 1.6:
+    #     return integral58(rmax.to("pc"))-integral58(rmin.to("pc"))
+    # elif np.isclose(alpha, (4./3.),1e-6) :
+    #     return integral43(rmax.to("pc"))-integral43(rmin.to("pc"))
+    # else:
+    return integral(rmax.to("pc"))
+    # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
+
+
+def N_coll_r_perM(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
+    """
+    Number of collisions for a no black hole power law system INTEGRAND PORTION
+    """
+    #Calculations 
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar+rcollisions).to(u.Rsun)
+    f1,f2 = get_ecc_functions(e,alpha) 
+    sqrt_term = cv * G / (1+alpha)
+
+    def integral(r):
+        prefactor = np.pi *ts 
+        M_r = 4 * np.pi * rho0 *r **(3.-alpha) /(3.-alpha)/r0**(-alpha)
+        sigma_r = np.sqrt(sqrt_term*M_r/r )
+        n_r  = rho0/Mstar * (r/r0)**(-alpha)
+        # eccentricity functions
+        F1 = f1 * rc**2
+        F2 = 2. * G * f2 * rc * (Mstar + Mcollisions)
+        
+        result = prefactor * n_r * sigma_r * (F1+(F2/sigma_r**2))
+        return result.cgs
+
+    # if alpha == 1.6:
+    #     return integral58(rmax.to("pc"))-integral58(rmin.to("pc"))
+    # elif np.isclose(alpha, (4./3.),1e-6) :
+    #     return integral43(rmax.to("pc"))-integral43(rmin.to("pc"))
+    # else:
+    return integral(rmax.to("pc"))
+    # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
+
 
 def N_coll_bh_limits(r0,ts, alpha, cv,rho0,fimf,MBH,*, 
                             Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
