@@ -13,3 +13,13 @@ def sphere_of_influence(alpha,r0,rho0,MBH):
 
 def tidal_radius(MBH, Mstar):
     return (stellar_radius_approximation(Mstar)*(MBH/Mstar)**(1./3.)).to('pc')
+
+
+def bondi_accretion_rate(sigma, M_BH, rho,*, M_enc=0.*u.Msun,Mgas =0.*u.Msun, gamma = 5./3.):
+    """assuming the sigma is related to the sound speed as below."""
+    cs = np.sqrt(gamma/3 * sigma**2)
+    Mdot = np.pi * rho * c.G**2 * M_BH**2 / cs**3
+    return Mdot.to(u.g/u.s)
+
+def eddington_rate(M_BH):
+    return 1e-8 *M_BH.to('Msun')/ u.yr

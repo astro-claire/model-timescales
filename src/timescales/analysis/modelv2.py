@@ -20,9 +20,9 @@ from ..physics.collisions import collision_timescale
 from ..physics.relaxation import r_no_relax, r_no_relax_bh
 from ..utils.energy import escape_velocity
 from ..physics.dynamical_friction import stellar_df_radius, stellar_df_time, bh_df_radius, bh_df_time
-from ..physics.blackhole import sphere_of_influence, tidal_radius
-from ..utils.filtering import filter_kwargs_for
+from ..physics.blackhole import sphere_of_influence, tidal_radius, bondi_accretion_rate, eddington_rate
 from .tools import select_coulomb_calculator
+from ..utils.filtering import filter_kwargs_for
 from ..utils.energy import escape_velocity
 
 def create_dynamical_model_integral(ensemble,*,
@@ -81,7 +81,7 @@ def create_dynamical_model_integral(ensemble,*,
     #quantities that only need to be calculated once
     t_universe = all_possible_kwargs['cosmology'].age(z_final).to('yr')
     f_IMF_m = ensemble.imf.mass_fraction(ensemble.Mstar,ensemble.Mstar + deltamstar )
-
+    print(f_IMF_m)
     #now, iterate through all the systems to create the minimum disruption timescales
     minimum_disruption_time = []
     which_disruption_time = []
@@ -199,8 +199,10 @@ def create_dynamical_model_integral(ensemble,*,
 
                 #Bondi Hoyle accretion onto the bh
                 c_s = np.sqrt(5./3. /3.* prof.velocity_dispersion(r_tidal)**2) #Take value inside sphere of influence
-                out['Mdot_BH'][sys_id] = np.pi * out['rhotot_ml'][sys_id] * c.G**2 * ensemble.profile_kwargs['M_bh']**2/(c_s**3)
-                out['Mdot_Edd'][sys_id] = 1e-8 * ( ensemble.profile_kwargs['M_bh'].to('Msun'))/u.yr
+                out['Mdot_BH'][sys_id] = bondi_accretion_rate(prof.velocity_dispersion(r_tidal),
+                                                        ensemble.profile_kwargs['M_bh'],
+                                                        out['rhotot_ml'][sys_id])
+                out['Mdot_Edd'][sys_id] = eddington_rate( ensemble.profile_kwargs['M_bh'].to('Msun'))
             else:
                 out['rhotot_ml'][sys_id] = 0*u.g/(u.cm**3)
         else: #STAR ONLY CASE
