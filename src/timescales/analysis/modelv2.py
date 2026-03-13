@@ -198,7 +198,6 @@ def create_dynamical_model_integral(ensemble,*,
                 out['rhotot_ml'][sys_id]=masscoll / (4*np.pi/3.*r_ml**3)
 
                 #Bondi Hoyle accretion onto the bh
-                c_s = np.sqrt(5./3. /3.* prof.velocity_dispersion(r_tidal)**2) #Take value inside sphere of influence
                 out['Mdot_BH'][sys_id] = bondi_accretion_rate(prof.velocity_dispersion(r_tidal),
                                                         ensemble.profile_kwargs['M_bh'],
                                                         out['rhotot_ml'][sys_id])
