@@ -3,6 +3,7 @@ import numpy as np
 import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants as c
+from ..utils.units import as_quantity
 from .stars import stellar_radius_approximation
 
 
@@ -17,8 +18,11 @@ def tidal_radius(MBH, Mstar):
 
 def bondi_accretion_rate(sigma, M_BH, rho,*, M_enc=0.*u.Msun,Mgas =0.*u.Msun, gamma = 5./3.):
     """assuming the sigma is related to the sound speed as below."""
-    cs = np.sqrt(gamma/3 * sigma**2)
-    Mdot = np.pi * rho * c.G**2 * M_BH**2 / cs**3
+    sigma = as_quantity(sigma, u.km/u.s)
+    M_BH = as_quantity(M_BH, u.Msun)
+    rho = as_quantity(rho, u.g/(u.cm**3))
+    cs = np.sqrt((gamma/3+1) * sigma**2)
+    Mdot = 2 *np.pi * rho * c.G**2 * (M_BH+M_enc+Mgas)**2 / cs**3
     return Mdot.to(u.g/u.s)
 
 def eddington_rate(M_BH):
