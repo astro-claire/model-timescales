@@ -124,8 +124,10 @@ def create_dynamical_model_integral(ensemble,*,
     out['rhotot_ml'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction region
     out['N_collisions_df_massloss'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction + massloss region
     out['mass_accretion_rate']=[0] * ensemble.Nsystems
-    out['rhotot_1e-1pc']=[0] * ensemble.Nsystems
     out['rhotot_1e-2pc']=[0] * ensemble.Nsystems
+    out['rhotot_1e-3pc']=[0] * ensemble.Nsystems
+    out['rhotot_1e-4pc']=[0] * ensemble.Nsystems
+    out['rhotot_1e-5pc']=[0] * ensemble.Nsystems
     out['rhotot_1e0pc']=[0] * ensemble.Nsystems
     out['mass_df_rate']=[0] * ensemble.Nsystems
     out['mass_depletion_rate']=[0] * ensemble.Nsystems
@@ -221,7 +223,7 @@ def create_dynamical_model_integral(ensemble,*,
                         masscoll = ncol *u.Msun
                 else:
                     masscoll = 0.0*u.Msun
-                out['rhotot_1e-1pc'][sys_id]=masscoll / (4*np.pi/3.*(0.01 *u.pc)**3)
+                out['rhotot_1e-2pc'][sys_id]=masscoll / (4*np.pi/3.*(0.01 *u.pc)**3)
                 ncol = 0.
                 if r_ml >0.001 *u.pc: 
                     ncol = N_coll_bh_limits(prof.r0,
@@ -243,7 +245,52 @@ def create_dynamical_model_integral(ensemble,*,
                         masscoll = ncol *u.Msun
                 else:
                     masscoll = 0.0*u.Msun
-                out['rhotot_1e-2pc'][sys_id]=masscoll / (4*np.pi/3.*(0.001 *u.pc)**3)
+                out['rhotot_1e-3pc'][sys_id]=masscoll / (4*np.pi/3.*(0.001 *u.pc)**3)
+                ncol = 0.
+                if r_ml >0.0001 *u.pc: 
+                    ncol = N_coll_bh_limits(prof.r0,
+                                        newts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        ensemble.profile_kwargs['M_bh'],
+                                        Mstar =  ensemble.timescales_kwargs["Mstar"],
+                                        Mcollisions=2 *ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmin =rmin,
+                                        rmax =0.0001 *u.pc,
+                                        e = ensemble.timescales_kwargs["e"])
+                    mass_encl1= prof.enclosed_mass(0.0001 *u.pc)
+                    if ncol *u.Msun >mass_encl1:
+                        masscoll = 0.5*mass_encl1
+                    else:
+                        masscoll = ncol *u.Msun
+                else:
+                    masscoll = 0.0*u.Msun
+                out['rhotot_1e-4pc'][sys_id]=masscoll / (4*np.pi/3.*(0.0001 *u.pc)**3)
+                ncol = 0.
+                if r_ml >0.00001 *u.pc: 
+                    ncol = N_coll_bh_limits(prof.r0,
+                                        newts, 
+                                        prof.alpha, 
+                                        cv,
+                                        prof.rho0,
+                                        f_IMF_m,
+                                        ensemble.profile_kwargs['M_bh'],
+                                        Mstar =  ensemble.timescales_kwargs["Mstar"],
+                                        Mcollisions=2 *ensemble.timescales_kwargs['Mcollisions'], 
+                                        rmin =rmin,
+                                        rmax =0.00001 *u.pc,
+                                        e = ensemble.timescales_kwargs["e"])
+                    mass_encl1= prof.enclosed_mass(0.00001 *u.pc)
+                    if ncol *u.Msun >mass_encl1:
+                        masscoll = 0.5*mass_encl1
+                    else:
+                        masscoll = ncol *u.Msun
+                else:
+                    masscoll = 0.0*u.Msun
+                out['rhotot_1e-5pc'][sys_id]=masscoll / (4*np.pi/3.*(0.00001 *u.pc)**3)
+
                 ncol = 0.
                 if r_ml >1. *u.pc: 
                     ncol = N_coll_bh_limits(prof.r0,
@@ -274,9 +321,11 @@ def create_dynamical_model_integral(ensemble,*,
                 out['Mdot_Edd'][sys_id] = eddington_rate( ensemble.profile_kwargs['M_bh'].to('Msun'))
             else:
                 out['rhotot_ml'][sys_id] = 0*u.g/(u.cm**3)
-                out['rhotot_1e-1pc'][sys_id]= 0*u.g/(u.cm**3)
-                out['rhotot_1e-1pc'][sys_id]= 0*u.g/(u.cm**3)
+                out['rhotot_1e-2pc'][sys_id]= 0*u.g/(u.cm**3)
+                out['rhotot_1e-3pc'][sys_id]= 0*u.g/(u.cm**3)
+                out['rhotot_1e-4pc'][sys_id]= 0*u.g/(u.cm**3)
                 out['rhotot_1e0pc'][sys_id]= 0*u.g/(u.cm**3)
+                out['rhotot_1e-5pc'][sys_id] = 0*u.g/(u.cm**3)
         else: #STAR ONLY CASE
             out['M_BH'][sys_id]= 0 *u.Msun
             #first we need to calculate the relevant radii
