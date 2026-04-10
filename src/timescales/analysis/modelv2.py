@@ -8,22 +8,20 @@ import astropy.units as u
 import astropy.constants as c
 from astropy.units import Quantity
 from astropy.cosmology import FlatLambdaCDM
-from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Literal, Optional
 import warnings
 from .tables import structural_table, timescale_table
-from .tools import get_system, condition_test
-from .integrals import Ncoll_pl_no_bh,Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits
-from .recipes import per_system_comparison, destructive_colllision_criterion
-from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation  
+from .tools import get_system
+from .integrals import Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits
+from .recipes import per_system_comparison, destructive_collision_criterion
+from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
-from ..physics.collisions import collision_timescale
 from ..physics.relaxation import r_no_relax, r_no_relax_bh
 from ..utils.energy import escape_velocity
 from ..physics.dynamical_friction import stellar_df_radius, stellar_df_time, bh_df_radius, bh_df_time
 from ..physics.blackhole import sphere_of_influence, tidal_radius, bondi_accretion_rate, eddington_rate
 from .tools import select_coulomb_calculator
 from ..utils.filtering import filter_kwargs_for
-from ..utils.energy import escape_velocity
 
 def create_dynamical_model_integral(ensemble,*,
                         deltamstar = 0.5*u.Msun,
@@ -42,7 +40,7 @@ def create_dynamical_model_integral(ensemble,*,
     #get per radius information
     timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
-    # massloss_byradius = destructive_colllision_criterion(ensemble)
+    # massloss_byradius = destructive_collision_criterion(ensemble)
     timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
     # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
     

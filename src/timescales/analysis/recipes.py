@@ -136,14 +136,14 @@ def collision_vs_main_sequence(
     return pd.DataFrame(out)
 
 
-def destructive_colllision_criterion(
+def destructive_collision_criterion(
     ensemble, *,
     r_ms_function = stellar_radius_approximation,
     r_ms_kwargs: Optional[Dict] = None,
     system_ids: Optional[Iterable[Union[int, str]]] = None,
     as_: Literal["dict", "pandas"] = "dict",
-    verbose = True, 
-    m_star: Optional[Quanity] = None, #deprecated
+    verbose = True,
+    m_star: Optional[Quantity] = None, #deprecated
 ) -> Union[Table, "pandas.DataFrame"]:
     """
     Build a per (system, radius) table of whether collisions should be considered constructive or destructive
@@ -305,7 +305,7 @@ def generate_timescale_comparison(
             t_ms = t_ms_func(m_star).to('yr')
     include = list(include)
     if "massloss" in include:
-        masslosstable = destructive_colllision_criterion(ensemble,
+        masslosstable = destructive_collision_criterion(ensemble,
                                                         r_ms_function=r_ms_function,
                                                         r_ms_kwargs = r_ms_kwargs,
                                                         system_ids = system_ids,
