@@ -12,9 +12,10 @@ from typing import Literal, Optional
 import warnings
 from .tables import structural_table, timescale_table
 from .tools import get_system
-from .integrals import Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits
+from .integrals import Ncoll_pl_no_bh_limits,N_coll_bh_limits,Mdot_pl_no_bh_limits, Mdot_binaries_pl_limits, Mdot_deplete_noBH_limits, Mdot_gas_no_bh_limits
 from .recipes import per_system_comparison, destructive_collision_criterion
 from ..physics.stars import main_sequence_lifetime_approximation, stellar_radius_approximation
+from ..physics.gas import gas_mass_per_collision, gas_buildup_timescale, gas_dynamical_friction_timescale, classify_gas_regime
 from ..physics.halo_environment import local_merger_timescale, neighbor_merger_timescale, interaction_timescale
 from ..physics.relaxation import r_no_relax, r_no_relax_bh
 from ..utils.energy import escape_velocity
@@ -26,13 +27,13 @@ from ..utils.filtering import filter_kwargs_for
 def create_dynamical_model_integral(ensemble,*,
                         deltamstar = 0.5*u.Msun,
                         as_: Literal["dict", "pandas"] = "dict",
-                        verbose = True, 
+                        verbose = True,
                         z_final = 0,
                         mass_accretion_ratio = 0.5,
-                        f_vms = 2e-2, 
+                        f_vms = 2e-2,
+                        timescale_override = None,
                         t_SN_disrupt = None,
-                        # t_dist_cc = None,
-                        timescale_override = None
+                        t_SN = 10*u.Myr,
                             ):
     """ 
     Create dynamical model using exact integral
@@ -126,6 +127,12 @@ def create_dynamical_model_integral(ensemble,*,
     out['rhotot_ml'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction region
     out['N_collisions_df_massloss'] =[0]* ensemble.Nsystems # number of collisions in the dynamical friction + massloss region
     out['mass_accretion_rate']=[0] * ensemble.Nsystems
+    # Gas buildup and dynamical friction outputs
+    out['Mdot_gas']   = [0] * ensemble.Nsystems  # integrated gas production rate
+    out['t_gb_min']   = [0] * ensemble.Nsystems  # minimum gas buildup timescale over sampled radii
+    out['rho_gas_eff']= [0] * ensemble.Nsystems  # effective mean gas density at t_SN
+    out['t_GDF']      = [0] * ensemble.Nsystems  # gas dynamical friction timescale
+    out['gas_regime'] = [0] * ensemble.Nsystems  # 1, 2, or 3 (see physics/gas.py)
     out['rhotot_1e-2pc']=[0] * ensemble.Nsystems
     out['rhotot_1e-3pc']=[0] * ensemble.Nsystems
     out['rhotot_1e-4pc']=[0] * ensemble.Nsystems
@@ -395,9 +402,64 @@ def create_dynamical_model_integral(ensemble,*,
             #     out['mass_depletion_rate'][sys_id]= ((ensemble.timescales_kwargs["Mstar"]/(ensemble.timescales_kwargs["Mstar"]+ensemble.timescales_kwargs['Mcollisions'])).cgs*out['mass_df_rate'][sys_id])
             out['mass_accretion_rate'][sys_id]= (1-f_vms)*(out['mass_df_rate'][sys_id]-out['mass_depletion_rate'][sys_id]-out['mass_binaries_rate'][sys_id])
             if out['mass_accretion_rate'][sys_id]==0:
-                out['mass_accretion_rate'][sys_id]= 0 *u.Msun/u.yr 
+                out['mass_accretion_rate'][sys_id]= 0 *u.Msun/u.yr
             Z = ensemble.imf_kwargs['Z']
             out['M_VMS'][sys_id]= (out['mass_accretion_rate'][sys_id].to_value(u.Msun/u.yr)/(10**(-9.13)*Z**0.74))**(1./2.1)* u.Msun
+
+            #------------
+            # Gas buildup and gas dynamical friction (no-BH case)
+            #------------
+            t_SN_yr = t_SN.to(u.yr)
+
+            # t_gb at each sampled radius using the per-radius t_coll and sigma tables
+            sys_ts  = get_system(timescales_by_radius, sys_id)
+            sys_enc = get_system(denclosedmass_byradius, sys_id)
+            # Table entries are Quantity objects — stack them into arrays
+            t_coll_r = u.Quantity([t.to(u.yr).value for t in sys_ts['t_coll']], unit=u.yr)
+            sigma_r  = u.Quantity([s.to(u.km/u.s).value for s in sys_enc['sigma']], unit=u.km/u.s)
+            # Mask out infinite/zero collision timescales (no collisions at those radii)
+            valid = np.isfinite(t_coll_r.value) & (t_coll_r.value > 0)
+            if valid.any():
+                t_gb_r = gas_buildup_timescale(
+                    t_coll_r[valid], sigma_r[valid],
+                    ensemble.timescales_kwargs["Mstar"],
+                    ensemble.timescales_kwargs["Mcollisions"],
+                )
+                out['t_gb_min'][sys_id] = t_gb_r.min()
+            else:
+                out['t_gb_min'][sys_id] = np.inf * u.yr
+
+            # Integrated gas production rate over the DF region
+            Mdot_gas = Mdot_gas_no_bh_limits(
+                prof.r0, newts, prof.alpha, cv, prof.rho0, f_IMF_m,
+                ensemble.timescales_kwargs["Mstar"],
+                ensemble.timescales_kwargs["Mcollisions"],
+                rmax=r_df, rmin=rmin,
+                e=ensemble.timescales_kwargs["e"],
+            ).to(u.Msun / u.yr)
+            out['Mdot_gas'][sys_id] = Mdot_gas
+
+            # Effective mean gas density accumulated by min(t_SN, t_min)
+            # assuming gas stays within r0 (uniform-sphere approximation)
+            t_accum = min(t_SN_yr, ts)
+            Mgas_accum = (Mdot_gas * t_accum).to(u.Msun)
+            V_r0 = (4 * np.pi / 3 * prof.r0**3).to(u.pc**3)
+            rho_gas_eff = (Mgas_accum / V_r0).to(u.Msun / u.pc**3)
+            out['rho_gas_eff'][sys_id] = rho_gas_eff
+
+            # Gas dynamical friction timescale at the characteristic radius r0
+            sigma_r0 = prof.velocity_dispersion(prof.r0)
+            if rho_gas_eff.value > 0:
+                out['t_GDF'][sys_id] = gas_dynamical_friction_timescale(
+                    sigma_r0, ensemble.timescales_kwargs["Mstar"], rho_gas_eff
+                )
+            else:
+                out['t_GDF'][sys_id] = np.inf * u.yr
+
+            # Regime classification
+            out['gas_regime'][sys_id] = classify_gas_regime(
+                out['t_gb_min'][sys_id], t_SN_yr, out['t_GDF'][sys_id]
+            )
 
     return out
 

@@ -515,6 +515,94 @@ def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mto
     result  = integrate_func(rmax)-integrate_func(rmin)
     return result.cgs
 
+
+def Mdot_gas_no_bh_limits(r0, ts, alpha, cv, rho0, fimf, Mstar, Mcollisions, *,
+                           e=0, rmax=1e10*u.pc, rmin=1000*u.Rsun):
+    """
+    Integrated gas production rate from stellar collisions in a power-law profile (no BH).
+
+    Computes int_{rmin}^{rmax} M_g,coll(r) / t_coll(r) * dN/dr dr, where
+        M_g,coll(r) = (M_* + M_c) * mu * sigma(r)^2 / E_bind
+        1/t_coll(r) = pi * n(r) * sigma(r) * (f1*rc^2 + 2*f2*rc*G*(M_*+M_c)/sigma^2)
+        dN/dr       = (rho_*(r)/M_*) * 4*pi*r^2
+
+    With sigma(r) = c_sig * r^((2-alpha)/2), the integrand has two analytic power-law terms:
+
+        Term A (geometric, ~f1): prefactor_A * r^(5 - 7*alpha/2)
+        Term B (grav. focusing, ~f2): prefactor_B * r^(3 - 5*alpha/2)
+
+    Note: alpha = 12/7 (Term A) or alpha = 8/5 (Term B) produces a log singularity
+    in the antiderivative; these values are unlikely for typical power-law profiles
+    but are not currently handled as special cases.
+
+    Parameters
+    ----------
+    r0 : Quantity [length]
+        Characteristic (half-mass) radius of the profile.
+    ts : Quantity [time]
+        Disruption timescale (used only to match the signature pattern; the rate
+        itself is independent of ts — multiply the result by ts to get total mass).
+    alpha : float
+        Power-law slope of the density profile.
+    cv : float
+        Virial velocity dispersion normalization constant.
+    rho0 : Quantity [mass/volume]
+        Central density at r0.
+    fimf : float
+        IMF mass fraction in the relevant mass bin.
+    Mstar : Quantity [mass]
+        Stellar mass M_*.
+    Mcollisions : Quantity [mass]
+        Collider mass M_c.
+    e : float, optional
+        Orbital eccentricity (default 0).
+    rmax : Quantity [length], optional
+        Upper integration limit.
+    rmin : Quantity [length], optional
+        Lower integration limit.
+
+    Returns
+    -------
+    Quantity [mass/time]
+        Total gas production rate in CGS units (g/s). Convert with .to(u.Msun/u.yr).
+    """
+    rstar = stellar_radius_approximation(Mstar)
+    rcollisions = stellar_radius_approximation(Mcollisions)
+    rc = (rstar + rcollisions).to(u.Rsun)
+    f1, f2 = get_ecc_functions(e, alpha)
+
+    mu = Mstar * Mcollisions / (Mstar + Mcollisions)
+    E_bind = G * (Mcollisions**2 / rcollisions + Mstar**2 / rstar)
+
+    # Profile density and enclosed-mass coefficients (matching existing convention)
+    crho = rho0 / (r0**(-alpha))
+    cm   = 4 * np.pi * crho / (3 - alpha)
+
+    # Velocity dispersion coefficient: sigma(r) = c_sig * r^((2-alpha)/2)
+    c_sig = np.sqrt(cv * G * cm / (1 + alpha))
+
+    # Prefactor for Term A (geometric collision cross-section, ~f1):
+    #   P_A * r^(6 - 7*alpha/2) / (6 - 7*alpha/2)
+    pref_A = (4 * np.pi**2 * (Mstar + Mcollisions) * mu * c_sig**3
+              * crho**2 * fimf * f1 * rc**2 / (E_bind * Mstar**2))
+
+    # Prefactor for Term B (gravitational focusing, ~f2):
+    #   P_B * r^(4 - 5*alpha/2) / (4 - 5*alpha/2)
+    pref_B = (8 * np.pi**2 * (Mstar + Mcollisions)**2 * mu * c_sig
+              * crho**2 * fimf * G * f2 * rc / (E_bind * Mstar**2))
+
+    def integrate_A(r):
+        return (pref_A / (6 - 7 * alpha / 2) * r**(6 - 7 * alpha / 2)).cgs
+
+    def integrate_B(r):
+        return (pref_B / (4 - 5 * alpha / 2) * r**(4 - 5 * alpha / 2)).cgs
+
+    def integrate_func(r):
+        return integrate_A(r) + integrate_B(r)
+
+    return integrate_func(rmax.to("pc")) - integrate_func(rmin.to("pc"))
+
+
 # def Mdot_binaries_pl_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mtot, Rtot,*,
 #                                 mubb= 0.17507,mubs =0.153619, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
 #     """c ^2 version Mass outflow/inflow rate due to binary heating. My equation 114"""
