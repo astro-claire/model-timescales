@@ -19,6 +19,7 @@ def get_ecc_functions(e,alpha):
     return f1,f2
 
 
+# DEPRECATED: not currently used (superseded by Ncoll_pl_no_bh_limits)
 def Ncoll_pl_no_bh(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0, rmin = 1000*u.Rsun):
     """
     Number of collisions for a no black hole power law system
@@ -129,6 +130,7 @@ def Ncoll_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcoll
         return integral(rmax.to("pc"))-integral(rmin.to("pc")) 
     # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
 
+# DEPRECATED: not currently used
 def N_coll_no_bh_integrand(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """
     Number of collisions for a no black hole power law system INTEGRAND PORTION
@@ -163,6 +165,7 @@ def N_coll_no_bh_integrand(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcol
     # return integral(rmax.to(u.pc))-integral(rmin.to(u.pc))
 
 
+# DEPRECATED: not currently used
 def N_coll_r_perM(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """
     Number of collisions for a no black hole power law system INTEGRAND PORTION
@@ -336,6 +339,7 @@ def Mdot_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mst
     return integrate_func(rmax.to("pc"))-integrate_func(rmin.to("pc")) 
 
 
+# DEPRECATED: not currently used
 def dMdotdr_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """
     Number of collisions for a no black hole power law system
@@ -376,6 +380,7 @@ def dMdotdr_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, 
 
 
 
+# DEPRECATED: not currently used (first-order approximation, superseded by Ncoll_pl_no_bh_limits)
 def Ncoll_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """
     Number of collisions for a no black hole power law system to first order + sticky spheres
@@ -392,6 +397,7 @@ def Ncoll_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,*, Mstar = 1.0*u
     result =  integral(rmax).cgs-integral(rmin).cgs
     return result.cgs
 
+# DEPRECATED: not currently used (first-order approximation, superseded by Mdot_pl_no_bh_limits)
 def Mdot_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """ Mass rate first order and sticky spheres""" 
     rstar = stellar_radius_approximation(Mstar)
@@ -409,6 +415,7 @@ def Mdot_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, cou
     result = integral(rmax)-integral(rmin)
     return result.cgs
 
+# DEPRECATED: not currently used (first-order approximation)
 def Mdot_deplete_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mstar = 1.0*u.Msun,Mcollisions=1.*u.Msun, e = 0,rmax = 1e10*u.pc, rmin = 1000*u.Rsun):
     """ Mass rate first order and sticky spheres""" 
     Mdf = Mdot_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,Mstar = Mstar,Mcollisions=Mcollisions, e =e,rmax = rmax, rmin = rmin)
@@ -422,6 +429,7 @@ def Mdot_deplete_pl_no_bh_limits_firstorder(r0,ts, alpha, cv,rho0,fimf,reduced_m
     result = Mdf * Mcollisions/(2*Mstar) * tdf_avg/ts
     return result.cgs
 
+# DEPRECATED: not currently used
 def average_tdf(rmin,rmax,coulomb, cv,Mstar,Mcollisions,cm,crho, alpha):
     q = Mstar/Mcollisions
     box = 1/(rmax-rmin) * 0.34*q / G**2 /Mstar/coulomb
@@ -702,6 +710,7 @@ def Mdot_df_withbh(r0, td, alpha, cv, rho0, fimf, MBH, lnLambda, *,
 
 
 
+# DEPRECATED: not currently used
 def Mdot_dep_withbh(r0, td, alpha, cv, rho0, fimf, MBH, lnLambda, *, 
                     Mstar=1.0*u.Msun,
                     Mcollisions=1.0*u.Msun,
