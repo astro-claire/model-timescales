@@ -32,6 +32,7 @@ def create_dynamical_model_integral(ensemble,*,
                         z_final = 0,
                         mass_accretion_ratio = 0.5,
                         f_vms = 2e-2, 
+                        t_SN_disrupt = None,
                         # t_dist_cc = None,
                         timescale_override = None
                             ):
@@ -101,6 +102,9 @@ def create_dynamical_model_integral(ensemble,*,
         disrupt_list.append(t_relax*0.2)
         if timescale_override is not None: 
             disrupt_list.append(timescale_override)
+        if "BH" in ensemble.densityModel:
+            if t_SN_disrupt is not None: 
+                disrupt_list.append(t_SN_disrupt.to('yr'))
         minimum_disruption_time.append(min(disrupt_list))
         which_disruption_time.append(disrupt_list.index(min(disrupt_list)))
     out['which_disruption_time']=which_disruption_time
