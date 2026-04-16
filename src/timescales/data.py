@@ -67,3 +67,52 @@ def build_bulk_energy_grid(masses: Quantity,
         out['minusU_over_K'] = (r[mask]) * u.one
 
     return out
+
+
+def build_single_system_grid(mass: Quantity,
+                             radius: Quantity,
+                             *,
+                             velocity: Quantity = None,
+                             alpha: float = 3/5,
+                             energy_unit=u.erg) -> dict:
+    """
+    Build a single-system grid dict compatible with TimescaleEnsemble.
+
+    Equivalent to build_bulk_energy_grid for one (M, R, V) point.
+    If no velocity is given, defaults to the virial velocity:
+
+        v_vir = sqrt(alpha * G * M / R)
+
+    which satisfies 2K + U = 0 (virial parameter Q = 1).
+
+    Parameters
+    ----------
+    mass : Quantity [mass]
+        Total mass of the system.
+    radius : Quantity [length]
+        Half-mass (characteristic) radius of the system.
+    velocity : Quantity [velocity], optional
+        Characteristic velocity. Defaults to the virial velocity.
+    alpha : float, optional
+        Gravitational potential prefactor (default 3/5 for a uniform sphere).
+    energy_unit : Unit, optional
+        Unit for K and U in the output (default u.erg).
+
+    Returns
+    -------
+    dict with keys 'M', 'R', 'V', 'K', 'U' — each a length-1 Quantity array,
+    matching the format returned by build_bulk_energy_grid.
+    """
+    if velocity is None:
+        velocity = np.sqrt(alpha * c.G * mass.to(u.kg) / radius.to(u.m)).to(u.km/u.s)
+
+    K = kinetic_energy(mass, velocity, out_unit=energy_unit)
+    U = gravitational_potential_energy(mass, radius, alpha=alpha, out_unit=energy_unit)
+
+    return {
+        'M': np.atleast_1d(mass),
+        'R': np.atleast_1d(radius),
+        'V': np.atleast_1d(velocity),
+        'K': np.atleast_1d(K),
+        'U': np.atleast_1d(U),
+    }
