@@ -49,7 +49,7 @@ def gas_mass_per_collision(sigma, Mstar, Mcollisions):
     return ((Mstar + Mcollisions) * mu * sigma**2 / E_bind).to(u.Msun)
 
 
-def gas_buildup_timescale(t_coll, sigma, Mstar, Mcollisions):
+def gas_buildup_timescale(t_coll, sigma, Mstar, Mcollisions, f = 0.01):
     """
     Timescale for gas to reach 1% of the local stellar density (t_gb).
 
@@ -78,7 +78,7 @@ def gas_buildup_timescale(t_coll, sigma, Mstar, Mcollisions):
         Gas buildup timescale in years.
     """
     Mg_coll = gas_mass_per_collision(sigma, Mstar, Mcollisions)
-    return (0.01 * Mstar * t_coll / Mg_coll).to(u.yr)
+    return (f * Mstar * t_coll / Mg_coll).to(u.yr)
 
 
 def gas_dynamical_friction_timescale(sigma, Mstar, rho_gas):
