@@ -5,10 +5,14 @@ import numpy as np
 import astropy.units as u
 from ..physics.collisions import collision_timescale
 from ..physics.gas import gas_mass_per_collision
+from ..utils.energy import escape_velocity
+from ..physics.stars import stellar_radius_approximation
+from ..physics.gas import gas_dynamical_friction_timescale
+from ..physics.dynamical_friction import dynamical_friction_timescale
 
 
 
-def per_system_te(radii, profile, f =0.01, alpha =1.75, end = 1e9):
+def per_system_te(radii, profile, f =0.01, alpha =1.75, end = 1e9, Mstar = 1*u.Msun):
     """
     For each system, update properties based on time evolution of density
     
@@ -18,7 +22,17 @@ def per_system_te(radii, profile, f =0.01, alpha =1.75, end = 1e9):
     rho0= profile.rho0
     r0 = profile.r0
     rhostars = rho0*(radii/r0)**(-alpha)
+    rhostars_trackn = rhostars
     rhogas = np.zeros(len(radii.value)) *(u.Msun /u.pc**3)
+    #physical values for merger criterion
+    v_esc_star = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
+    constructive = np.where(profile.velocity_dispersion(radii)<v_esc_star, 1,0)
+    destructive = np.where(profile.velocity_dispersion(radii)>v_esc_star, 1,0)
+    #initial number density of stars at each radius
+    nstars = rhostars / Mstar
+    
+
+    #setup loop
     timestamp = 1
     #initialize arrays
     t_array = [timestamp] # time in years
@@ -37,23 +51,35 @@ def per_system_te(radii, profile, f =0.01, alpha =1.75, end = 1e9):
         elif delta_t < end/1e9:
             print("Timestep became too short, exiting")
             break
-        print(delta_t)
         # delta_t = 100
 
         #number of collisions & accumulated gas mas
-        Mstar = 1*u.Msun
+        
         v = profile.velocity_dispersion(radii)
         Mcollisions = 1 * u.Msun
-        N_r = delta_t*u.yr/ t_coll(radii,profile, rhostars,v, alpha = alpha)
+        N_r = delta_t*u.yr/ t_coll(radii,profile, rhostars_trackn,v, alpha = alpha)
         Mg_coll = gas_mass_per_collision(v, Mstar, Mcollisions)
         Mstars = np.full(len(Mg_coll), 2*Mstar.to('Msun').value) * u.Msun
         Mg_coll_r = np.where(Mg_coll > 2*Mstar, Mstars,Mg_coll) #Replace any >2 Mstar values with 2 Mstar (can't collide more mass than the two stars combined)
         
-        rhogas = rhogas_old+( Mg_coll_r * N_r * rhostars /Mstar) 
+        #calculate constructive 
+        frac_reduction = constructive* np.where((N_r>1),1,N_r) #TODO delete if i dont use
+
+
+        #compare  the gas df to the stellar df
+        g_df = gas_dynamical_friction_timescale(v, Mstar,rhogas)
+        s_df = dynamical_friction_timescale(v,rhostars, M_obj = 2 *Mstar)
+        total_df = np.where(g_df<s_df, g_df, s_df)
+        total_df_status = np.where(g_df<s_df, 'g', 's')
+
+        
+
 
         #calculate new rhos
-        # rhogas = rhostar_old / 3
-        rhostars = rhostar_old - ( Mg_coll_r * N_r * rhostars /Mstar)   #CW Need to add depletion diffusion
+        rhogas = rhogas_old+( Mg_coll_r * N_r * rhostars /Mstar) 
+
+        rhostars = rhostar_old - ( Mg_coll_r * N_r * rhostars /Mstar) # the total mass density
+        rhostars_trackn = rhostar_old - (destructive*( Mg_coll_r * N_r * rhostars /Mstar)) - (constructive *(N_r * rhostars))   #CW Need to add depletion diffusion
 
         if np.any(rhostars< 0 * (u.Msun / u.pc**3)):
             break
@@ -74,7 +100,7 @@ def per_system_te(radii, profile, f =0.01, alpha =1.75, end = 1e9):
 
 def calculate_buildup_time(radii, profile,rhostar,alpha,f, Mstar =1*u.Msun, Mcollisions =1*u.Msun):
     v = profile.velocity_dispersion(radii)
-    tcollisions = t_coll(radii,profile, rhostar,v, alpha = alpha)
+    tcollisions = t_coll(radii,profile, rhostar,v, alpha = alpha, Mstar =Mstar, Mcollisions =Mcollisions)
     return gas_buildup_timescale(tcollisions, v,Mstar, Mcollisions, f= f)
 
 
@@ -87,11 +113,11 @@ def t_coll(radii,profile, rhostar, v, Mstar = 1*u.Msun, alpha = 1.25,
     
     nstar= rhostar/Mstar
     t_coll = collision_timescale(nstar, v,Mstar,
-                        alpha = 1.25,
-                        Mcollisions = 1 * u.Msun,
-                        n_unit=1./u.cm**3,
-                        v_unit=u.cm/u.s,
-                        Mstar_unit = u.Msun )
+                        alpha = alpha,
+                        Mcollisions = Mcollisions,
+                        n_unit=n_unit,
+                        v_unit=v_unit,
+                        Mstar_unit = Mstar_unit)
     # need to think more about this--should I update the velocity dispersion ?
     return t_coll.to('yr')
 
