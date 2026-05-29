@@ -73,7 +73,9 @@ def per_system_te(
 
     # Initial number density of stars at each radius
     nstars = rhostars / Mstar
-
+    # initial velocity dispersion
+    sigma=profile.velocity_dispersion(radii)
+    v = sigma
     # Setup loop
     timestamp = 1
     t_array        = [timestamp]
@@ -101,10 +103,22 @@ def per_system_te(
             break
 
         # ------------------------------------------------------------------ #
+        # gas velocity damping
+        # ------------------------------------------------------------------ #
+
+        t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+        decay = np.exp(-delta_t * u.yr / t_gdf)
+        v = v * decay
+
+        factor = 0.1
+        vfloor = factor * sigma 
+        v = np.where(v<vfloor, vfloor, v)
+
+        # ------------------------------------------------------------------ #
         # Number of collisions & accumulated gas mass
         # ------------------------------------------------------------------ #
 
-        v           = profile.velocity_dispersion(radii)
+        # v           = profile.velocity_dispersion(radii)
         Mcollisions = 1 * u.Msun
         N_r         = delta_t * u.yr / t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
@@ -146,12 +160,12 @@ def per_system_te(
         # ------------------------------------------------------------------ #
 
         rhogas    = rhogas_old + (Mg_coll_r * N_r * rhostars / Mstar)
-        rhostars  = rhostar_old - (Mg_coll_r * N_r * rhostars / Mstar)
+        rhostars  = rhostar_old - (Mg_coll_r * N_r * rhostars / Mstar) #this array provides the true mass density
         rhostars_trackn = (
             rhostar_old
             - (destructive * (Mg_coll_r * N_r * rhostars / Mstar))
             - (constructive * (N_r * rhostars))
-        )
+        ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
 
         # ------------------------------------------------------------------ #
         #advance the timestep
