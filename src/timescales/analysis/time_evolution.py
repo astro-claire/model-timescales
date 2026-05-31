@@ -9,7 +9,7 @@ from ..utils.energy import escape_velocity
 from ..physics.stars import stellar_radius_approximation
 from ..physics.gas import gas_dynamical_friction_timescale
 from ..physics.dynamical_friction import dynamical_friction_timescale
-
+from ..physics.relaxation import relaxation_timescale
 
 
 def per_system_te(
@@ -81,6 +81,7 @@ def per_system_te(
     t_array        = [timestamp]
     rho_star_array = [rhostars]
     rho_gas_array  = [rhogas]
+    constructive_array = [constructive]
     df_massive_array = []   # populated only when use_imf=True
 
     while timestamp < end:
@@ -94,7 +95,7 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # Determine adaptive delta_t
         # ------------------------------------------------------------------ #
-        t_buildup_f = calculate_buildup_time(radii, profile, rhostars, alpha, f=f)
+        t_buildup_f = calculate_buildup_time(radii, profile, rhostars, alpha, f,v)
         delta_t = min(t_buildup_f.to('yr').value)
         if delta_t > end / 10:
             delta_t = end / 10
@@ -103,22 +104,9 @@ def per_system_te(
             break
 
         # ------------------------------------------------------------------ #
-        # gas velocity damping
-        # ------------------------------------------------------------------ #
-
-        t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
-        decay = np.exp(-delta_t * u.yr / t_gdf)
-        v = v * decay
-
-        factor = 0.1
-        vfloor = factor * sigma 
-        v = np.where(v<vfloor, vfloor, v)
-
-        # ------------------------------------------------------------------ #
         # Number of collisions & accumulated gas mass
         # ------------------------------------------------------------------ #
 
-        # v           = profile.velocity_dispersion(radii)
         Mcollisions = 1 * u.Msun
         N_r         = delta_t * u.yr / t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
@@ -137,6 +125,13 @@ def per_system_te(
         total_df        = np.where(g_df < s_df, g_df, s_df)
         total_df_status = np.where(g_df < s_df, 'g', 's')
 
+        # if timestamp !=1:
+        rho_lost_gdf = rhostars*(delta_t*u.yr)/g_df
+        # else:
+        #     rho_lost_gdf= rhogas
+
+        rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars
+
         if use_imf:
             # Density of stars more massive than M_threshold, scaled from the
             # current total stellar density.  The mass fraction is kept fixed at
@@ -152,29 +147,70 @@ def per_system_te(
             df_massive = np.where(gdf_massive < sdf_massive, gdf_massive, sdf_massive)
             df_massive_array.append(df_massive)
 
-        if np.any(df_massive<timestamp*u.yr):
-            print("it happened!")
+        # if np.any(df_massive<timestamp*u.yr):
+        #     print("it happened!")
 
         # ------------------------------------------------------------------ #
         # Calculate new densities
         # ------------------------------------------------------------------ #
 
         rhogas    = rhogas_old + (Mg_coll_r * N_r * rhostars / Mstar)
-        rhostars  = rhostar_old - (Mg_coll_r * N_r * rhostars / Mstar) #this array provides the true mass density
+        rhostars  = rhostar_old - (Mg_coll_r * N_r * rhostars / Mstar) -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
         rhostars_trackn = (
             rhostar_old
             - (destructive * (Mg_coll_r * N_r * rhostars / Mstar))
-            - (constructive * (N_r * rhostars))
+            - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf
         ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
+
+        if np.any(~np.isfinite(rhostars.value)):
+            print("Non-finite values in rhostars — likely overflow. Exiting.")
+            break
+
+        depleted = rhostars < 0 * (u.Msun / u.pc**3)
+        if np.any(depleted):
+            print("stars were depleted!")
+        if depleted.all():
+            print("Core Collapse!!")
+            break
+
+        floor = 1e-4 * (u.Msun / u.pc**3)
+        rhostars       = np.where(depleted, floor, rhostars)
+        rhostars_trackn = np.where(
+            rhostars_trackn < 0 * (u.Msun / u.pc**3), floor, rhostars_trackn
+        )
+
+        # ------------------------------------------------------------------ #
+        # gas velocity damping for the next timestep
+        # ------------------------------------------------------------------ #
+
+        t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+        decay = np.exp(-delta_t * u.yr / t_gdf)
+        v = v * decay
+
+        # factor = 0.1 # option A - a constant factor
+        t_rlx = relaxation_timescale(sigma,rhostars,Mstar)
+        # factor = np.exp(-t_rlx/t_gdf)
+        factor = t_gdf / (t_gdf + t_rlx)
+
+        vfloor = factor * sigma 
+        v = np.where(v<vfloor, vfloor, v)
+
+
+        # calculate the new constructive / destructive criterion
+        constructive = np.where(v < v_esc_star, 1, 0)
+        destructive  = np.where(v > v_esc_star, 1, 0)
+        print(constructive)
+        print(rhostars)
+
 
         # ------------------------------------------------------------------ #
         #advance the timestep
         # ------------------------------------------------------------------ #
-        if np.any(rhostars < 0 * (u.Msun / u.pc**3)): #rho stars can't be negative
-            break
+       #if rhostars fall below 0, set to arbitrarily small value
 
         rho_star_array.append(rhostars)
         rho_gas_array.append(rhogas)
+        constructive_array.append(constructive)
 
         timestamp += delta_t
         t_array.append(timestamp)
@@ -186,6 +222,7 @@ def per_system_te(
         rhostar=rho_star_array,
         rhogas=rho_gas_array,
         r=radii,
+        constructive = constructive_array,
     )
     if use_imf:
         result['df_massive']      = df_massive_array
@@ -264,8 +301,8 @@ def imf_representative_mass(imf, M_threshold):
 
     return M_rep, f_mass_massive
 
-def calculate_buildup_time(radii, profile, rhostar, alpha, f, Mstar=1 * u.Msun, Mcollisions=1 * u.Msun):
-    v = profile.velocity_dispersion(radii)
+def calculate_buildup_time(radii, profile, rhostar, alpha, f,v, Mstar=1 * u.Msun, Mcollisions=1 * u.Msun):
+    # v = profile.velocity_dispersion(radii)
     tcollisions = t_coll(radii, profile, rhostar, v, alpha=alpha, Mstar=Mstar, Mcollisions=Mcollisions)
     return gas_buildup_timescale(tcollisions, v, Mstar, Mcollisions, f=f)
 
