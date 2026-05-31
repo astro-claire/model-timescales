@@ -15,6 +15,7 @@ from ..physics.relaxation import relaxation_timescale
 def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
     Mstar=1 * u.Msun, imf=None, M_threshold=None,
+    velocity_damping = True, gdf = True, sdf = True, #these are the physical effects that can be included
 ):
     """
     For each system, update properties based on time evolution of density.
@@ -57,7 +58,12 @@ def per_system_te(
             f"IMF: representative mass above {M_threshold:.2f} = {M_rep_massive:.3f}; "
             f"mass fraction = {f_mass_massive:.4f}"
         )
-
+    if sdf==False: 
+        print("WARNING: Stellar dynamical friction is turned OFF for this run.")
+    if gdf==False: 
+        print("WARNING: Gas dynamical friction is turned OFF for this run.")
+    if velocity_damping==False: 
+        print("WARNING: Velocity damping is turned OFF for this run.")
 
     # Set initial values
     rho0 = profile.rho0
@@ -72,7 +78,6 @@ def per_system_te(
     # Extrapolate the first and last edges symmetrically
     r_inner = radii[0]  - (mid[0]  - radii[0])   # = 2*r[0] - mid[0]
     r_outer = radii[-1] + (radii[-1] - mid[-1])   # = 2*r[-1] - mid[-1]
-
     # Full edge array, length n+1
     edges = np.concatenate([[r_inner], mid, [r_outer]])
     # Shell volume centered on each radius, length n
@@ -145,10 +150,7 @@ def per_system_te(
         total_df        = np.where(g_df < s_df, g_df, s_df)
         total_df_status = np.where(g_df < s_df, 'g', 's')
 
-        # if timestamp !=1:
         rho_lost_gdf = rhostars*(delta_t*u.yr)/g_df
-        # else:
-        #     rho_lost_gdf= rhogas
 
         rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars
 
@@ -162,6 +164,10 @@ def per_system_te(
         rho_lost_sdf = np.where(
             np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
         )
+        if gdf ==False: #option to turn off gas dynamical friction
+            rho_lost_gdf= rho_lost_gdf * 0.
+        if sdf ==False:  #option to turn off stellar dynamical friction
+            rho_lost_sdf = rho_lost_sdf* 0. 
         # Ensure combined losses don't exceed what's available
         total_loss = (Mg_coll_r * N_r * rhostars / Mstar) + rho_lost_gdf + rho_lost_sdf
         scale = np.where(
@@ -173,8 +179,6 @@ def per_system_te(
 
         rho_lost_gdf = rho_lost_gdf * scale
         rho_lost_sdf = rho_lost_sdf * scale
-
-        
 
         if use_imf:
             # Density of stars more massive than M_threshold, scaled from the
@@ -191,8 +195,6 @@ def per_system_te(
             df_massive = np.where(gdf_massive < sdf_massive, gdf_massive, sdf_massive)
             df_massive_array.append(df_massive)
 
-        # if np.any(df_massive<timestamp*u.yr):
-        #     print("it happened!")
 
         # ------------------------------------------------------------------ #
         # Calculate new densities
@@ -206,7 +208,7 @@ def per_system_te(
             - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf
         ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
         mass_accreted_central = shell_vols *(rho_lost_gdf+rho_lost_sdf)
-        
+
         # ------------------------------------------------------------------ #
         # Handle any numerical overflows
         # ------------------------------------------------------------------ #        
@@ -235,24 +237,24 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # gas velocity damping for the next timestep
         # ------------------------------------------------------------------ #
+        if velocity_damping:
+            t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+            decay = np.exp(-delta_t * u.yr / t_gdf)
+            v = v * decay
 
-        t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
-        decay = np.exp(-delta_t * u.yr / t_gdf)
-        v = v * decay
+            # factor = 0.1 # option A - a constant factor
+            t_rlx = relaxation_timescale(sigma,rhostars,Mstar)
+            # factor = np.exp(-t_rlx/t_gdf)
+            factor = t_gdf / (t_gdf + t_rlx)
 
-        # factor = 0.1 # option A - a constant factor
-        t_rlx = relaxation_timescale(sigma,rhostars,Mstar)
-        # factor = np.exp(-t_rlx/t_gdf)
-        factor = t_gdf / (t_gdf + t_rlx)
+            vfloor = factor * sigma 
+            v = np.where(v<vfloor, vfloor, v)
 
-        vfloor = factor * sigma 
-        v = np.where(v<vfloor, vfloor, v)
-
-        v_abs_floor = 0.001 * np.min(sigma)
-        v = np.where(v < v_abs_floor, v_abs_floor, v)
-        # calculate the new constructive / destructive criterion
-        constructive = np.where(v < v_esc_star, 1, 0)
-        destructive  = np.where(v > v_esc_star, 1, 0)
+            v_abs_floor = 0.001 * np.min(sigma)
+            v = np.where(v < v_abs_floor, v_abs_floor, v)
+            # calculate the new constructive / destructive criterion
+            constructive = np.where(v < v_esc_star, 1, 0)
+            destructive  = np.where(v > v_esc_star, 1, 0)
         # print(constructive)
         # print(rhostars)
 
