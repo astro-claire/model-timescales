@@ -66,6 +66,18 @@ def per_system_te(
     rhostars_trackn = rhostars
     rhogas = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
 
+    #shell volumes 
+    # Midpoints between adjacent radii form the interior edges
+    mid = 0.5 * (radii[:-1] + radii[1:])
+    # Extrapolate the first and last edges symmetrically
+    r_inner = radii[0]  - (mid[0]  - radii[0])   # = 2*r[0] - mid[0]
+    r_outer = radii[-1] + (radii[-1] - mid[-1])   # = 2*r[-1] - mid[-1]
+
+    # Full edge array, length n+1
+    edges = np.concatenate([[r_inner], mid, [r_outer]])
+    # Shell volume centered on each radius, length n
+    shell_vols = (4./3.) * np.pi * (edges[1:]**3 - edges[:-1]**3)
+
     # Physical values for merger criterion
     v_esc_star   = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
     constructive = np.where(profile.velocity_dispersion(radii) < v_esc_star, 1, 0)
@@ -83,6 +95,8 @@ def per_system_te(
     rho_gas_array  = [rhogas]
     constructive_array = [constructive]
     df_massive_array = []   # populated only when use_imf=True
+    central_mass_array = [0*u.Msun] #these will store the mass accreted into the center
+    central_mass_rate_array = [0*u.Msun/u.yr]
 
     while timestamp < end:
         # ------------------------------------------------------------------ #
@@ -97,6 +111,10 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         t_buildup_f = calculate_buildup_time(radii, profile, rhostars, alpha, f,v)
         delta_t = min(t_buildup_f.to('yr').value)
+        # Prevent rhogas from changing by more than a factor of 2 per step
+        if timestamp>1:
+            t_gas_limit = (rhogas / (Mg_coll_r * N_r * rhostars / Mstar /delta_t / u.yr + 1e-30 * u.Msun/u.pc**3/u.yr) ).to('yr')
+            delta_t = min(delta_t, 0.5 * min(t_gas_limit.value))
         if delta_t > end / 10:
             delta_t = end / 10
         elif delta_t < end / 1e9:
@@ -111,10 +129,12 @@ def per_system_te(
         N_r         = delta_t * u.yr / t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
         Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
+        tinyMstars      = np.full(len(Mg_coll),0.000001 * Mstar.to('Msun').value) * u.Msun
         Mg_coll_r   = np.where(Mg_coll > 2 * Mstar, Mstars, Mg_coll)
-
-        # Constructive fraction not used yet
-        frac_reduction = constructive * np.where((N_r > 1), 1, N_r)
+        Mg_coll_r   = np.where(Mg_coll_r<0.000001 *Mstar,tinyMstars, Mg_coll_r )
+        # print(Mg_coll_r)
+        # # Constructive fraction not used yet
+        # frac_reduction = constructive * np.where((N_r > 1), 1, N_r)
 
         # ------------------------------------------------------------------ #
         # Dynamical friction: gas DF, stellar DF, and (optionally) massive-   #
@@ -131,6 +151,30 @@ def per_system_te(
         #     rho_lost_gdf= rhogas
 
         rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars
+
+        collision_loss = Mg_coll_r * N_r * rhostars / Mstar
+
+
+        # Cap loss terms to at most the available stellar density
+        rho_lost_gdf = np.where(
+            np.isfinite(rho_lost_gdf.value), rho_lost_gdf, rhostar_old
+        )
+        rho_lost_sdf = np.where(
+            np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
+        )
+        # Ensure combined losses don't exceed what's available
+        total_loss = (Mg_coll_r * N_r * rhostars / Mstar) + rho_lost_gdf + rho_lost_sdf
+        scale = np.where(
+            total_loss > rhostar_old,
+            rhostar_old / total_loss,
+            np.ones(len(radii.value))
+        )
+        collision_loss = collision_loss * scale
+
+        rho_lost_gdf = rho_lost_gdf * scale
+        rho_lost_sdf = rho_lost_sdf * scale
+
+        
 
         if use_imf:
             # Density of stars more massive than M_threshold, scaled from the
@@ -154,19 +198,28 @@ def per_system_te(
         # Calculate new densities
         # ------------------------------------------------------------------ #
 
-        rhogas    = rhogas_old + (Mg_coll_r * N_r * rhostars / Mstar)
-        rhostars  = rhostar_old - (Mg_coll_r * N_r * rhostars / Mstar) -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
+        rhogas    = rhogas_old + collision_loss
+        rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
         rhostars_trackn = (
             rhostar_old
-            - (destructive * (Mg_coll_r * N_r * rhostars / Mstar))
+            - (destructive * collision_loss)
             - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf
         ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
-
+        mass_accreted_central = shell_vols *(rho_lost_gdf+rho_lost_sdf)
+        
+        # ------------------------------------------------------------------ #
+        # Handle any numerical overflows
+        # ------------------------------------------------------------------ #        
+        #First, don't let any nans or infs into the arrays
         if np.any(~np.isfinite(rhostars.value)):
             print("Non-finite values in rhostars — likely overflow. Exiting.")
             break
-
-        depleted = rhostars < 0 * (u.Msun / u.pc**3)
+        if np.any(~np.isfinite(rhogas.value)):
+            print("rhogas overflow — exiting.")
+            break
+            
+        #second, don't let the density become negative
+        depleted = rhostars <= 1e-4 * (u.Msun / u.pc**3)
         if np.any(depleted):
             print("stars were depleted!")
         if depleted.all():
@@ -176,7 +229,7 @@ def per_system_te(
         floor = 1e-4 * (u.Msun / u.pc**3)
         rhostars       = np.where(depleted, floor, rhostars)
         rhostars_trackn = np.where(
-            rhostars_trackn < 0 * (u.Msun / u.pc**3), floor, rhostars_trackn
+            rhostars_trackn <= 0 * (u.Msun / u.pc**3), floor, rhostars_trackn
         )
 
         # ------------------------------------------------------------------ #
@@ -195,12 +248,13 @@ def per_system_te(
         vfloor = factor * sigma 
         v = np.where(v<vfloor, vfloor, v)
 
-
+        v_abs_floor = 0.001 * np.min(sigma)
+        v = np.where(v < v_abs_floor, v_abs_floor, v)
         # calculate the new constructive / destructive criterion
         constructive = np.where(v < v_esc_star, 1, 0)
         destructive  = np.where(v > v_esc_star, 1, 0)
-        print(constructive)
-        print(rhostars)
+        # print(constructive)
+        # print(rhostars)
 
 
         # ------------------------------------------------------------------ #
@@ -211,6 +265,8 @@ def per_system_te(
         rho_star_array.append(rhostars)
         rho_gas_array.append(rhogas)
         constructive_array.append(constructive)
+        central_mass_array.append(np.sum(mass_accreted_central))
+        central_mass_rate_array.append(np.sum(mass_accreted_central)/delta_t/u.yr)
 
         timestamp += delta_t
         t_array.append(timestamp)
@@ -223,6 +279,8 @@ def per_system_te(
         rhogas=rho_gas_array,
         r=radii,
         constructive = constructive_array,
+        central_mass = central_mass_array,
+        central_mass_rate = central_mass_rate_array,
     )
     if use_imf:
         result['df_massive']      = df_massive_array
