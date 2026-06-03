@@ -82,7 +82,8 @@ def per_system_te(
     edges = np.concatenate([[r_inner], mid, [r_outer]])
     # Shell volume centered on each radius, length n
     shell_vols = (4./3.) * np.pi * (edges[1:]**3 - edges[:-1]**3)
-
+    shell_floors = 1*u.Msun / shell_vols #can't have less than 1 star in each shell for collisions.
+    
     # Physical values for merger criterion
     v_esc_star   = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
     constructive = np.where(profile.velocity_dispersion(radii) < v_esc_star, 1, 0)
@@ -102,7 +103,9 @@ def per_system_te(
     df_massive_array = []   # populated only when use_imf=True
     central_mass_array = [0*u.Msun] #these will store the mass accreted into the center
     central_mass_rate_array = [0*u.Msun/u.yr]
-
+    r_central_mass_max_array = [0*u.pc]
+    central_volumetric_rate_array = [0* (u.Msun / u.pc**3/u.yr)]
+    no_collisions = np.ones(len(radii)) #initially, collisions are allowed to occur everywhere in the cluster
     while timestamp < end:
         # ------------------------------------------------------------------ #
         # Save previous values
@@ -152,9 +155,9 @@ def per_system_te(
 
         rho_lost_gdf = rhostars*(delta_t*u.yr)/g_df
 
-        rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars
+        rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
 
-        collision_loss = Mg_coll_r * N_r * rhostars / Mstar
+        collision_loss = Mg_coll_r * N_r * rhostars / Mstar *no_collisions
 
 
         # Cap loss terms to at most the available stellar density
@@ -221,15 +224,18 @@ def per_system_te(
             break
             
         #second, don't let the density become negative
-        depleted = rhostars <= 1e-4 * (u.Msun / u.pc**3)
-        if np.any(depleted):
-            print("stars were depleted!")
+        # depleted = rhostars <= 1e-4 * (u.Msun / u.pc**3)
+        depleted = rhostars<shell_floors
+        no_collisions = np.where(depleted,0,1)
+        # if np.any(depleted):
+        #     print("stars were depleted!")
         if depleted.all():
             print("Core Collapse!!")
             break
 
         floor = 1e-4 * (u.Msun / u.pc**3)
-        rhostars       = np.where(depleted, floor, rhostars)
+        completely_depleted = rhostars <= 1e-4 * (u.Msun / u.pc**3)
+        rhostars       = np.where(completely_depleted, floor, rhostars)
         rhostars_trackn = np.where(
             rhostars_trackn <= 0 * (u.Msun / u.pc**3), floor, rhostars_trackn
         )
@@ -269,6 +275,9 @@ def per_system_te(
         constructive_array.append(constructive)
         central_mass_array.append(np.sum(mass_accreted_central))
         central_mass_rate_array.append(np.sum(mass_accreted_central)/delta_t/u.yr)
+        rmax = np.where((mass_accreted_central/delta_t)== max((mass_accreted_central/delta_t)))[0]
+        r_central_mass_max_array.append(radii[rmax][0])
+        # central_volumetric_rate_array.append((rho_lost_sdf +rho_lost_gdf)/ delta_t / u.yr)
 
         timestamp += delta_t
         t_array.append(timestamp)
@@ -283,6 +292,8 @@ def per_system_te(
         constructive = constructive_array,
         central_mass = central_mass_array,
         central_mass_rate = central_mass_rate_array,
+        r_mmax = r_central_mass_max_array,
+        # central_volumetric_rate = central_volumetric_rate_array,
     )
     if use_imf:
         result['df_massive']      = df_massive_array
