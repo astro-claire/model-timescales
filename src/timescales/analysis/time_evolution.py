@@ -10,12 +10,13 @@ from ..physics.stars import stellar_radius_approximation
 from ..physics.gas import gas_dynamical_friction_timescale
 from ..physics.dynamical_friction import dynamical_friction_timescale
 from ..physics.relaxation import relaxation_timescale
+from ..physics.coulomb import coulomb_log_BH
 
 
 def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
     Mstar=1 * u.Msun, imf=None, M_threshold=None,
-    velocity_damping = True, gdf = True, sdf = True, #these are the physical effects that can be included
+    velocity_damping = True, gdf = True, sdf = True, gas_diff = True, #these are the physical effects that can be included
 ):
     """
     For each system, update properties based on time evolution of density.
@@ -64,14 +65,15 @@ def per_system_te(
         print("WARNING: Gas dynamical friction is turned OFF for this run.")
     if velocity_damping==False: 
         print("WARNING: Velocity damping is turned OFF for this run.")
-
+    if gas_diff==False: 
+        print("WARNING: Gas Diffusion is turned OFF for this run.")
     # Set initial values
     rho0 = profile.rho0
     r0   = profile.r0
     rhostars       = rho0 * (radii / r0) ** (-alpha)
     rhostars_trackn = rhostars
     rhogas = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
-
+    
     #shell volumes 
     # Midpoints between adjacent radii form the interior edges
     mid = 0.5 * (radii[:-1] + radii[1:])
@@ -83,7 +85,7 @@ def per_system_te(
     # Shell volume centered on each radius, length n
     shell_vols = (4./3.) * np.pi * (edges[1:]**3 - edges[:-1]**3)
     shell_floors = 1*u.Msun / shell_vols #can't have less than 1 star in each shell for collisions.
-    
+
     # Physical values for merger criterion
     v_esc_star   = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
     constructive = np.where(profile.velocity_dispersion(radii) < v_esc_star, 1, 0)
@@ -94,6 +96,14 @@ def per_system_te(
     # initial velocity dispersion
     sigma=profile.velocity_dispersion(radii)
     v = sigma
+    coulomb = coulomb_log_BH(profile.M_bh,radii, sigma)
+    #initial timescale tracking
+    resolution = len(radii)
+    t_df =[dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar, coulomb=coulomb)]
+    t_collision = [t_coll(radii, profile, rhostars, v, alpha=alpha)]
+    t_gas_df= [np.full(resolution, -1)] # initially no gas - put a dummy value
+    t_gas_buildup = [calculate_buildup_time(radii, profile, rhostars, alpha, f,v)]
+
     # Setup loop
     timestamp = 1
     t_array        = [timestamp]
@@ -105,7 +115,8 @@ def per_system_te(
     central_mass_rate_array = [0*u.Msun/u.yr]
     r_central_mass_max_array = [0*u.pc]
     central_volumetric_rate_array = [0* (u.Msun / u.pc**3/u.yr)]
-    no_collisions = np.ones(len(radii)) #initially, collisions are allowed to occur everywhere in the cluster
+    no_collisions = np.ones(resolution) #initially, collisions are allowed to occur everywhere in the cluster
+
     while timestamp < end:
         # ------------------------------------------------------------------ #
         # Save previous values
@@ -117,7 +128,8 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # Determine adaptive delta_t
         # ------------------------------------------------------------------ #
-        t_buildup_f = calculate_buildup_time(radii, profile, rhostars, alpha, f,v)
+        t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f,v)#[no_collisions.astype(bool)]
+        t_gas_buildup.append(t_buildup_f)
         delta_t = min(t_buildup_f.to('yr').value)
         # Prevent rhogas from changing by more than a factor of 2 per step
         if timestamp>1:
@@ -134,7 +146,9 @@ def per_system_te(
         # ------------------------------------------------------------------ #
 
         Mcollisions = 1 * u.Msun
-        N_r         = delta_t * u.yr / t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
+        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
+        t_collision.append(collision_t)
+        N_r         = delta_t * u.yr / collision_t
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
         Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
         tinyMstars      = np.full(len(Mg_coll),0.000001 * Mstar.to('Msun').value) * u.Msun
@@ -149,7 +163,9 @@ def per_system_te(
         # star DF from the IMF.                                                #
         # ------------------------------------------------------------------ #
         g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
-        s_df    = dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar)
+        s_df    = dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar, coulomb = coulomb)
+        t_df.append(s_df)
+        t_gas_df.append(g_df)
         total_df        = np.where(g_df < s_df, g_df, s_df)
         total_df_status = np.where(g_df < s_df, 'g', 's')
 
@@ -158,6 +174,15 @@ def per_system_te(
         rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
 
         collision_loss = Mg_coll_r * N_r * rhostars / Mstar *no_collisions
+
+        gas_lost  = rhogas * (delta_t*u.yr)/g_df  # density of gas lost
+        if gas_diff ==False: 
+            gas_lost = gas_lost * 0.
+        gas_lost = np.where(
+            gas_lost > rhogas_old,
+            rhogas_old,
+            gas_lost
+        ) # make sure no more than the current gas amount is lost. 
 
 
         # Cap loss terms to at most the available stellar density
@@ -203,7 +228,7 @@ def per_system_te(
         # Calculate new densities
         # ------------------------------------------------------------------ #
 
-        rhogas    = rhogas_old + collision_loss
+        rhogas    = rhogas_old + collision_loss - gas_lost
         rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
         rhostars_trackn = (
             rhostar_old
@@ -293,6 +318,10 @@ def per_system_te(
         central_mass = central_mass_array,
         central_mass_rate = central_mass_rate_array,
         r_mmax = r_central_mass_max_array,
+        t_coll = t_collision,
+        t_df = t_df,
+        t_gb = t_gas_buildup,
+        t_gdf = t_gas_df,
         # central_volumetric_rate = central_volumetric_rate_array,
     )
     if use_imf:
