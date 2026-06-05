@@ -39,7 +39,7 @@ def dynamical_friction_timescale(v, rho,*,
     M_obj = as_quantity(M_obj, mass_unit)
     Mstar = as_quantity(Mstar, mass_unit)
     massratio = Mstar/M_obj
-    t_relax = relaxation_timescale(v,rho, Mstar, coulomb=10, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun)
+    t_relax = relaxation_timescale(v,rho, Mstar, coulomb=coulomb, v_unit = u.km/u.s, rho_unit = u.g/u.cm**3,mass_unit = u.Msun)
     return t_relax * massratio
 
 
