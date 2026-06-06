@@ -291,7 +291,7 @@ def per_system_te(
             vfloor = factor * sigma 
             v = np.where(v<vfloor, vfloor, v)
 
-            v_abs_floor = 0.001 * np.min(sigma)
+            v_abs_floor = 0.000001 * np.min(sigma)
             v = np.where(v < v_abs_floor, v_abs_floor, v)
             # calculate the new constructive / destructive criterion
             constructive = np.where(v < v_esc_star, 1, 0)
