@@ -73,7 +73,8 @@ def per_system_te(
     rhostars       = rho0 * (radii / r0) ** (-alpha)
     rhostars_trackn = rhostars
     rhogas = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
-    
+    rho_prod = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
+
     #shell volumes 
     # Midpoints between adjacent radii form the interior edges
     mid = 0.5 * (radii[:-1] + radii[1:])
@@ -175,9 +176,14 @@ def per_system_te(
 
         rho_lost_gdf = rhostars*(delta_t*u.yr)/g_df
 
-        rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
+        # rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
 
         collision_loss = Mg_coll_r * N_r * rhostars / Mstar *no_collisions
+
+        rho_prod  = rho_prod + collision_loss - rho_prod * (delta_t * u.yr) / s_df
+        rho_prod  = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
+        rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
+
 
         gas_lost  = rhogas * (delta_t*u.yr)/g_df  # density of gas lost
         if gas_diff ==False: 
