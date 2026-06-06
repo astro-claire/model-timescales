@@ -16,7 +16,8 @@ from ..physics.coulomb import coulomb_log_BH
 def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
     Mstar=1 * u.Msun, imf=None, M_threshold=None,
-    velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True, #these are the physical effects that can be included
+    velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True,
+    sn = True, sn_time = 20*u.Myr, #these are the physical effects that can be included
 ):
     """
     For each system, update properties based on time evolution of density.
@@ -119,7 +120,12 @@ def per_system_te(
     r_central_mass_max_array = [0*u.pc]
     central_volumetric_rate_array = [0* (u.Msun / u.pc**3/u.yr)]
     no_collisions = np.ones(resolution) #initially, collisions are allowed to occur everywhere in the cluster
-
+    
+    supernova_timer =1
+    supernova_factor = 1. 
+    sn_fired_last_step = False  
+    sn_wiggle_room = 0.
+    rhogas_threshold = 1e-5 * u.Msun / u.pc**3
     while timestamp < end:
         # ------------------------------------------------------------------ #
         # Save previous values
@@ -135,12 +141,38 @@ def per_system_te(
         t_gas_buildup.append(t_buildup_f)
         delta_t = min(t_buildup_f.to('yr').value)
         # Prevent rhogas from changing by more than a factor of 2 per step
-        if timestamp>1:
-            t_gas_limit = (rhogas / (Mg_coll_r * N_r * rhostars / Mstar /delta_t / u.yr + 1e-30 * u.Msun/u.pc**3/u.yr) ).to('yr')
-            delta_t = min(delta_t, 0.5 * min(t_gas_limit.value))
+        if timestamp > 1 and not sn_fired_last_step:
+            collision_rate = Mg_coll_r * N_r * rhostars / Mstar / delta_t / u.yr \
+                            + 1e-30 * u.Msun/u.pc**3/u.yr
+            t_gas_limit = (rhogas / collision_rate).to('yr')
+            rhogas_threshold = f * rhostars
+            valid = rhogas > rhogas_threshold
+            #this only needs to be checked if the rhogas is large
+            if np.any(valid):
+                delta_t = min(delta_t, 0.5 * min(t_gas_limit[valid].value))
+
         if delta_t > end / 10:
             delta_t = end / 10
-        elif delta_t < end / 1e9:
+
+        sn_fired_this_step = False
+        if sn:
+            time_to_next_sn = (supernova_timer + sn_time.to('yr').value) - timestamp
+            if delta_t >= time_to_next_sn:
+                delta_t          = time_to_next_sn
+                supernova_timer  = supernova_timer + sn_time.to('yr').value
+                supernova_factor = 1e-6
+                sn_fired_this_step = True
+                print(f"SN went off at t={timestamp + delta_t:.3e} yr, "
+                    f"next at {supernova_timer+ sn_time.to('yr').value:.3e} yr")
+                sn_wiggle_room = timestamp +delta_t+1e4
+        
+        if timestamp<sn_wiggle_room:
+            sn_fired_last_step = True
+        else:
+            sn_fired_last_step = sn_fired_this_step  
+        if not sn_fired_this_step and delta_t < end / 1e9:
+            print(rhogas)
+            print(delta_t)
             print("Timestep became too short, exiting")
             break
 
@@ -167,8 +199,12 @@ def per_system_te(
         # Dynamical friction: gas DF, stellar DF, and (optionally) massive-   #
         # star DF from the IMF.                                                #
         # ------------------------------------------------------------------ #
-        g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
-        s_df    = dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar, coulomb = coulomb)
+        # g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+        rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars,0.001* f * rhostars, rhogas)
+        g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
+        s_df    = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb = coulomb)
+        s_rlx = relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb)
+
         t_df.append(s_df)
         t_gas_df.append(g_df)
         total_df        = np.where(g_df < s_df, g_df, s_df)
@@ -183,7 +219,7 @@ def per_system_te(
         rho_prod  = rho_prod + collision_loss - rho_prod * (delta_t * u.yr) / s_df
         rho_prod  = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
         rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
-
+        rho_lost_srlx = rhostars * (delta_t * u.yr)/s_rlx
 
         gas_lost  = rhogas * (delta_t*u.yr)/g_df  # density of gas lost
         if gas_diff ==False: 
@@ -198,6 +234,9 @@ def per_system_te(
         # Cap loss terms to at most the available stellar density
         rho_lost_gdf = np.where(
             np.isfinite(rho_lost_gdf.value), rho_lost_gdf, rhostar_old
+        )
+        rho_lost_sdf = np.where(
+            np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
         )
         rho_lost_sdf = np.where(
             np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
@@ -238,7 +277,7 @@ def per_system_te(
         # Calculate new densities
         # ------------------------------------------------------------------ #
 
-        rhogas    = rhogas_old + collision_loss - gas_lost
+        rhogas    = (rhogas_old + collision_loss - gas_lost )* supernova_factor
         rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
         rhostars_trackn = (
             rhostar_old
@@ -312,11 +351,12 @@ def per_system_te(
         central_mass_rate_array.append(np.sum(mass_accreted_central)/delta_t/u.yr)
         central_mass_per_r_rate_array.append(mass_accreted_central/delta_t/u.yr)
         rmax = np.where((mass_accreted_central/delta_t)== max((mass_accreted_central/delta_t)))[0]
-        r_central_mass_max_array.append(radii[rmax][0])
+        # r_central_mass_max_array.append(radii[rmax][0])
         # central_volumetric_rate_array.append((rho_lost_sdf +rho_lost_gdf)/ delta_t / u.yr)
 
         timestamp += delta_t
         t_array.append(timestamp)
+        supernova_factor=1. #reset SN
 
     print("Iterated through " + str(len(t_array)) + " steps")
 
