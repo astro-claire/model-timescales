@@ -16,7 +16,7 @@ from ..physics.coulomb import coulomb_log_BH
 def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
     Mstar=1 * u.Msun, imf=None, M_threshold=None,
-    velocity_damping = True, gdf = True, sdf = True, gas_diff = True, #these are the physical effects that can be included
+    velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True, #these are the physical effects that can be included
 ):
     """
     For each system, update properties based on time evolution of density.
@@ -101,7 +101,7 @@ def per_system_te(
     resolution = len(radii)
     t_df =[dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar, coulomb=coulomb)]
     t_collision = [t_coll(radii, profile, rhostars, v, alpha=alpha)]
-    t_gas_df= [np.full(resolution, -1)] # initially no gas - put a dummy value
+    t_gas_df= [np.full(resolution, -1)*u.yr] # initially no gas - put a dummy value
     t_gas_buildup = [calculate_buildup_time(radii, profile, rhostars, alpha, f,v)]
 
     # Setup loop
@@ -113,6 +113,8 @@ def per_system_te(
     df_massive_array = []   # populated only when use_imf=True
     central_mass_array = [0*u.Msun] #these will store the mass accreted into the center
     central_mass_rate_array = [0*u.Msun/u.yr]
+    central_mass_per_r_rate_array= [np.full(resolution, 0)*(u.Msun/u.yr)] # initially no gas - put a dummy value
+
     r_central_mass_max_array = [0*u.pc]
     central_volumetric_rate_array = [0* (u.Msun / u.pc**3/u.yr)]
     no_collisions = np.ones(resolution) #initially, collisions are allowed to occur everywhere in the cluster
@@ -149,6 +151,8 @@ def per_system_te(
         collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
         t_collision.append(collision_t)
         N_r         = delta_t * u.yr / collision_t
+        if collisions ==False:
+            N_r = N_r*0.
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
         Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
         tinyMstars      = np.full(len(Mg_coll),0.000001 * Mstar.to('Msun').value) * u.Msun
@@ -300,6 +304,7 @@ def per_system_te(
         constructive_array.append(constructive)
         central_mass_array.append(np.sum(mass_accreted_central))
         central_mass_rate_array.append(np.sum(mass_accreted_central)/delta_t/u.yr)
+        central_mass_per_r_rate_array.append(mass_accreted_central/delta_t/u.yr)
         rmax = np.where((mass_accreted_central/delta_t)== max((mass_accreted_central/delta_t)))[0]
         r_central_mass_max_array.append(radii[rmax][0])
         # central_volumetric_rate_array.append((rho_lost_sdf +rho_lost_gdf)/ delta_t / u.yr)
@@ -317,6 +322,7 @@ def per_system_te(
         constructive = constructive_array,
         central_mass = central_mass_array,
         central_mass_rate = central_mass_rate_array,
+        central_mass_rate_r = central_mass_per_r_rate_array,
         r_mmax = r_central_mass_max_array,
         t_coll = t_collision,
         t_df = t_df,
