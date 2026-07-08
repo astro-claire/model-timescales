@@ -15,7 +15,7 @@ class salpeterIMF(imfBase):
     """ 
     Salpeter imf with gamma = 1.35
     """
-    def __init__(self, Mmin=0.1*u.Msun, Mmax=100*u.Msun):
+    def __init__(self, Mmin=0.1*u.Msun, Mmax=100*u.Msun, **kwargs):
         self.alpha = 2.35
         self.Mmin = Mmin
         self.Mmax = Mmax

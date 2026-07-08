@@ -35,6 +35,7 @@ class kroupaIMF(imfBase):
         include_low: bool = False,
         low_break: Quantity = 0.08 * u.Msun,
         low_alpha: float = 0.3,
+        **kwargs
     ):
         """
         Parameters
@@ -122,10 +123,11 @@ class kroupaIMF(imfBase):
             C.append(C[-1] * (Mb ** (self.alphas[i + 1] - self.alphas[i])))
 
         # Total mass integral is A times the weighted sum over segments
-        S = 0 * u.Msun  # integral has mass units
+        S = None
         for i, alpha in enumerate(self.alphas):
             a, b = self.edges[i], self.edges[i + 1]
-            S += C[i] * self._I_mass(a, b, alpha)
+            term = C[i] * self._I_mass(a, b, alpha)
+            S = term if S is None else S + term
 
         A = (Mtot / S).to(1 / u.Msun)
         self._A = A
