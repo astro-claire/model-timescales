@@ -34,15 +34,16 @@ def create_dynamical_model_integral(ensemble,*,
                         timescale_override = None,
                         t_SN_disrupt = None,
                         t_SN = 10*u.Myr,
+                        mass_spectrum_psi = 1.0
                             ):
     """ 
     Create dynamical model using exact integral
     """
     #get per radius information
-    timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"))
+    timescales_by_radius = timescale_table(ensemble, include=("t_relax","t_coll","t_df"), override_args= {'mass_spectrum_psi':mass_spectrum_psi})
     denclosedmass_byradius = structural_table(ensemble, fields = ("Menc","dMencdR","sigma"))
     # massloss_byradius = destructive_collision_criterion(ensemble)
-    timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar})["t_df"]
+    timescales_by_radius['stickytdf'] = timescale_table(ensemble,include = ("t_df"),override_args={'M_obj':2*ensemble.Mstar,'mass_spectrum_psi':mass_spectrum_psi})["t_df"]
     # sticky_df_byradius = timescale_table(ensemble, override_args={'M_obj':2*ensemble.Mstar})
     
     #initialize a table of outputs. One row for each system (bulk)
@@ -166,19 +167,19 @@ def create_dynamical_model_integral(ensemble,*,
             out['M_BH'][sys_id]= ensemble.profile_kwargs['M_bh']
             #first we need to decide on the radii structure
             r_soi = sphere_of_influence(prof.alpha,prof.r0,prof.rho0, ensemble.profile_kwargs['M_bh'])
-            t_df_bh = bh_df_time(r_soi,ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, ensemble.profile_kwargs['M_bh'],cv=prof.get_veldisp_constant())
-            t_df_stars = stellar_df_time(r_soi,ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0,cv=prof.get_veldisp_constant())
+            t_df_bh = bh_df_time(r_soi,ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, ensemble.profile_kwargs['M_bh'],cv=prof.get_veldisp_constant(), mass_spectrum_psi=mass_spectrum_psi)
+            t_df_stars = stellar_df_time(r_soi,ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0,cv=prof.get_veldisp_constant(),mass_spectrum_psi=mass_spectrum_psi)
             if t_df_bh<t_df_stars:
-                r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant())
+                r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant(),mass_spectrum_psi=mass_spectrum_psi)
             else:
-                r_df = bh_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0,ensemble.profile_kwargs['M_bh'], cv=prof.get_veldisp_constant())
+                r_df = bh_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0,ensemble.profile_kwargs['M_bh'], cv=prof.get_veldisp_constant(),mass_spectrum_psi=mass_spectrum_psi)
             r_tidal = tidal_radius(ensemble.profile_kwargs['M_bh'], ensemble.timescales_kwargs["Mstar"]) #FIXME with the collisions raduys
             rmin = max(r_tidal, 2*stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"]))
             r_ml = cv *c.G * ensemble.profile_kwargs['M_bh']/(escape_velocity(ensemble.timescales_kwargs["Mstar"],stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])))**2/ (1+prof.alpha)
             # print(r_ml.to('pc'))
             # rmin = 1e-2 * u.pc
             #Calculated this radius - this would be for Dynamical friction but that's not currently implemented
-            rmin_relax = r_no_relax_bh(prof.rho0, prof.r0, ensemble.timescales_kwargs["Mstar"], coulomb_log, cv, prof.alpha,ensemble.profile_kwargs['M_bh'])
+            rmin_relax = r_no_relax_bh(prof.rho0, prof.r0, ensemble.timescales_kwargs["Mstar"], coulomb_log, cv, prof.alpha,ensemble.profile_kwargs['M_bh'], mass_spectrum_psi = mass_spectrum_psi)
             out['N_collisions_df'][sys_id] = N_coll_bh_limits(prof.r0,
                                         newts, 
                                         prof.alpha, 
@@ -338,12 +339,12 @@ def create_dynamical_model_integral(ensemble,*,
         else: #STAR ONLY CASE
             out['M_BH'][sys_id]= 0 *u.Msun
             #first we need to calculate the relevant radii
-            r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant())
+            r_df = stellar_df_radius(ts, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant(), mass_spectrum_psi=mass_spectrum_psi)
             rmin = 20000* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
-            rtest = stellar_df_radius(10*u.yr, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant())
+            rtest = stellar_df_radius(10*u.yr, ensemble.timescales_kwargs["Mstar"],coulomb_log,ensemble.timescales_kwargs['Mcollisions'],prof.alpha,prof.r0,prof.rho0, cv=prof.get_veldisp_constant(), mass_spectrum_psi=mass_spectrum_psi)
             # print(rtest)
             rmin = rtest
-            rmin = r_no_relax(prof.rho0, prof.r0, ensemble.timescales_kwargs["Mstar"], coulomb_log, cv, prof.alpha)
+            rmin = r_no_relax(prof.rho0, prof.r0, ensemble.timescales_kwargs["Mstar"], coulomb_log, cv, prof.alpha, mass_spectrum_psi = mass_spectrum_psi)
             # rmin = 2* stellar_radius_approximation(ensemble.timescales_kwargs["Mstar"])
             # rmin = 1e-2 * u.pc
             out['N_collisions_df'][sys_id] = Ncoll_pl_no_bh_limits(prof.r0,

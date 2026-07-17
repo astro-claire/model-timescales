@@ -16,17 +16,17 @@ def relaxation_timescale(v,rho, mass, coulomb=10, v_unit = u.km/u.s, rho_unit = 
 
 
 
-def r_no_relax(rho0,r0, Mstar, coulomb, cv, alpha):
+def r_no_relax(rho0,r0, Mstar, coulomb, cv, alpha, mass_spectrum_psi=1.0):
     """ 
     Radius at which
     Relaxation time = orbital period
     """
     num = 8. *np.pi * 0.34 * cv**(3./2.) *rho0 * r0**alpha
-    denom = (1.+alpha)**(3./2.)* (3.-alpha)**2. * Mstar * coulomb
+    denom = (1.+alpha)**(3./2.)* (3.-alpha)**2. * Mstar * coulomb * mass_spectrum_psi
 
     return ((num/denom)**(1./(alpha-3.))).to('pc')
 
-def r_no_relax_bh(rho0,r0, Mstar, coulomb, cv, alpha, MBH):
+def r_no_relax_bh(rho0,r0, Mstar, coulomb, cv, alpha, MBH, mass_spectrum_psi=1.0):
     """ 
     Radius at which
     Relaxation time = orbital period
@@ -34,5 +34,5 @@ def r_no_relax_bh(rho0,r0, Mstar, coulomb, cv, alpha, MBH):
     """
     box = 0.34 * cv**(3./2.) / 2. / np.pi / (1.+alpha)**(3./2.) / Mstar  / coulomb
     num = box * MBH**2 
-    denom = rho0*r0**alpha
+    denom = rho0*r0**alpha *mass_spectrum_psi
     return ((num/denom)**(1./(3.-alpha))).to('pc')
