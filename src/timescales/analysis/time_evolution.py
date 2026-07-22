@@ -7,7 +7,7 @@ from ..physics.collisions import collision_timescale
 from ..physics.gas import gas_mass_per_collision
 from ..utils.energy import escape_velocity
 from ..physics.stars import stellar_radius_approximation
-from ..physics.gas import gas_dynamical_friction_timescale
+from ..physics.gas import gas_dynamical_friction_timescale, aerodynamic_drag_timescale
 from ..physics.dynamical_friction import dynamical_friction_timescale
 from ..physics.relaxation import relaxation_timescale
 from ..physics.coulomb import coulomb_log_BH
@@ -17,7 +17,9 @@ def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
     Mstar=1 * u.Msun, imf=None, M_threshold=None,
     velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True,
-    sn = True, sn_time = 20*u.Myr, #these are the physical effects that can be included
+    sn = True, sn_time = 20*u.Myr,
+    gas_effects_off =False,
+    rlx_only =False, #these are the physical effects that can be included
 ):
     """
     For each system, update properties based on time evolution of density.
@@ -60,6 +62,7 @@ def per_system_te(
             f"IMF: representative mass above {M_threshold:.2f} = {M_rep_massive:.3f}; "
             f"mass fraction = {f_mass_massive:.4f}"
         )
+    
     if sdf==False: 
         print("WARNING: Stellar dynamical friction is turned OFF for this run.")
     if gdf==False: 
@@ -68,6 +71,20 @@ def per_system_te(
         print("WARNING: Velocity damping is turned OFF for this run.")
     if gas_diff==False: 
         print("WARNING: Gas Diffusion is turned OFF for this run.")
+    if sn ==False:
+        print("WARNING: Supernovae turned OFF for this run.")
+    if collisions == False:
+        print("WARNING: collisions turned OFF for this run")
+    if gas_effects_off:
+        print("TURNING OFF ALL GAS DYNAMICS")
+        gdf = False
+        velocity_damping = False
+        gas_diff = False
+        sn =False
+    if gdf ==False and velocity_damping==False and sn ==False and gas_diff ==False and collisions==False:
+        print("WARNING: it's a relaxation only integration")
+        rlx_only = True
+    
     # Set initial values
     rho0 = profile.rho0
     r0   = profile.r0
@@ -105,6 +122,7 @@ def per_system_te(
     t_collision = [t_coll(radii, profile, rhostars, v, alpha=alpha)]
     t_gas_df= [np.full(resolution, -1)*u.yr] # initially no gas - put a dummy value
     t_gas_buildup = [calculate_buildup_time(radii, profile, rhostars, alpha, f,v)]
+    t_relaxation = [relaxation_timescale(sigma,rhostars,Mstar,coulomb=coulomb)]
 
     # Setup loop
     timestamp = 1
@@ -123,6 +141,7 @@ def per_system_te(
     
     supernova_timer =1
     supernova_factor = 1. 
+    sn_fired_this_step = False
     sn_fired_last_step = False  
     sn_wiggle_room = 0.
     rhogas_threshold = 1e-5 * u.Msun / u.pc**3
@@ -130,7 +149,7 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # Save previous values
         # ------------------------------------------------------------------ #
-
+        coulomb = coulomb_log_BH(profile.M_bh,radii, v)
         rhostar_old = rhostars
         rhogas_old  = rhogas
 
@@ -154,28 +173,33 @@ def per_system_te(
         if delta_t > end / 10:
             delta_t = end / 10
 
-        sn_fired_this_step = False
+        
         if sn:
+            sn_fired_this_step = False
             time_to_next_sn = (supernova_timer + sn_time.to('yr').value) - timestamp
             if delta_t >= time_to_next_sn:
                 delta_t          = time_to_next_sn
                 supernova_timer  = supernova_timer + sn_time.to('yr').value
                 supernova_factor = 1e-6
                 sn_fired_this_step = True
-                print(f"SN went off at t={timestamp + delta_t:.3e} yr, "
-                    f"next at {supernova_timer+ sn_time.to('yr').value:.3e} yr")
+                # print(f"SN went off at t={timestamp + delta_t:.3e} yr, "
+                #     f"next at {supernova_timer+ sn_time.to('yr').value:.3e} yr")
                 sn_wiggle_room = timestamp +delta_t+1e4
-        
-        if timestamp<sn_wiggle_room:
-            sn_fired_last_step = True
-        else:
-            sn_fired_last_step = sn_fired_this_step  
+            if timestamp<sn_wiggle_room:
+                sn_fired_last_step = True
+            else:
+                sn_fired_last_step = sn_fired_this_step  
+
+        if rlx_only==True: # in the case of a relaxation only simulation, we can ignore the gas dynamics when calculating the timestep
+            delta_t = min(relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb).to('yr').value)/100
+            # delta_t = end/500
+            print(timestamp)
         if not sn_fired_this_step and delta_t < end / 1e9:
             print(rhogas)
             print(delta_t)
             print("Timestep became too short, exiting")
             break
-
+        
         # ------------------------------------------------------------------ #
         # Number of collisions & accumulated gas mass
         # ------------------------------------------------------------------ #
@@ -202,9 +226,12 @@ def per_system_te(
         # g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars,0.001* f * rhostars, rhogas)
         g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
+        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2)
+        g_df = np.where(g_df>g_aero, g_aero, g_df)
         s_df    = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb = coulomb)
         s_rlx = relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb)
-
+        # t_relaxation.append(relaxation_timescale(sigma,rhostars_trackn,Mstar,coulomb = 10))
+        t_relaxation.append(s_rlx)
         t_df.append(s_df)
         t_gas_df.append(g_df)
         total_df        = np.where(g_df < s_df, g_df, s_df)
@@ -215,8 +242,10 @@ def per_system_te(
         # rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
 
         collision_loss = Mg_coll_r * N_r * rhostars / Mstar *no_collisions
-
-        rho_prod  = rho_prod + collision_loss - rho_prod * (delta_t * u.yr) / s_df
+        collision_merger_gain  = (2*Mstar - Mg_coll_r) * N_r * rhostars / Mstar * no_collisions
+        total_collision_loss   = collision_loss + collision_merger_gain  # = N_r * rhostars
+        
+        rho_prod  = rho_prod + collision_merger_gain - rho_prod * (delta_t * u.yr) / s_df
         rho_prod  = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
         rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
         rho_lost_srlx = rhostars * (delta_t * u.yr)/s_rlx
@@ -238,15 +267,15 @@ def per_system_te(
         rho_lost_sdf = np.where(
             np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
         )
-        rho_lost_sdf = np.where(
-            np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
+        rho_lost_srlx = np.where(
+            np.isfinite(rho_lost_srlx.value), rho_lost_srlx, rhostar_old
         )
         if gdf ==False: #option to turn off gas dynamical friction
             rho_lost_gdf= rho_lost_gdf * 0.
         if sdf ==False:  #option to turn off stellar dynamical friction
             rho_lost_sdf = rho_lost_sdf* 0. 
         # Ensure combined losses don't exceed what's available
-        total_loss = (Mg_coll_r * N_r * rhostars / Mstar) + rho_lost_gdf + rho_lost_sdf
+        total_loss = (Mg_coll_r * N_r * rhostars / Mstar) + rho_lost_gdf + rho_lost_sdf + rho_lost_srlx
         scale = np.where(
             total_loss > rhostar_old,
             rhostar_old / total_loss,
@@ -256,6 +285,7 @@ def per_system_te(
 
         rho_lost_gdf = rho_lost_gdf * scale
         rho_lost_sdf = rho_lost_sdf * scale
+        rho_lost_srlx = rho_lost_srlx * scale
 
         if use_imf:
             # Density of stars more massive than M_threshold, scaled from the
@@ -276,15 +306,23 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # Calculate new densities
         # ------------------------------------------------------------------ #
+        rhogas   = (rhogas_old + collision_loss - gas_lost) * supernova_factor
+        rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
+        rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
 
-        rhogas    = (rhogas_old + collision_loss - gas_lost )* supernova_factor
-        rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf#this array provides the true mass density
+        rhostars = rhostar_old - total_collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
         rhostars_trackn = (
             rhostar_old
-            - (destructive * collision_loss)
-            - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf
-        ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
-        mass_accreted_central = shell_vols *(rho_lost_gdf+rho_lost_sdf)
+            - total_collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
+        )
+        # rhogas    = (rhogas_old + collision_loss - gas_lost )* supernova_factor
+        # rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf - rho_lost_srlx#this array provides the true mass density
+        # rhostars_trackn = (
+        #     rhostar_old
+        #     - (destructive * collision_loss)
+        #     - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf - rho_lost_srlx
+        # ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
+        mass_accreted_central = shell_vols *(rho_lost_gdf+rho_lost_sdf+rho_lost_srlx)
 
         # ------------------------------------------------------------------ #
         # Handle any numerical overflows
@@ -374,6 +412,7 @@ def per_system_te(
         t_df = t_df,
         t_gb = t_gas_buildup,
         t_gdf = t_gas_df,
+        t_rlx = t_relaxation,
         # central_volumetric_rate = central_volumetric_rate_array,
     )
     if use_imf:

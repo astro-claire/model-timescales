@@ -81,7 +81,7 @@ def gas_buildup_timescale(t_coll, sigma, Mstar, Mcollisions, f = 0.01):
     return (f * Mstar * t_coll / Mg_coll).to(u.yr)
 
 
-def gas_dynamical_friction_timescale(sigma, Mstar, rho_gas):
+def gas_dynamical_friction_timescale(sigma, Mstar, rho_gas, IM=1):
     """
     Gas dynamical friction timescale (t_GDF).
 
@@ -104,7 +104,7 @@ def gas_dynamical_friction_timescale(sigma, Mstar, rho_gas):
     Quantity [time]
         Gas dynamical friction timescale in years.
     """
-    return (sigma**3 * Mstar / (4 * np.pi * (c.G * Mstar)**2 * rho_gas)).to(u.yr)
+    return (sigma**3 * Mstar / (4 * np.pi * (c.G * Mstar)**2 * rho_gas *IM)).to(u.yr)
 
 
 def classify_gas_regime(t_gb, t_SN, t_GDF):
@@ -133,3 +133,13 @@ def classify_gas_regime(t_gb, t_SN, t_GDF):
     if t_gb >= t_SN:
         return 1
     return 2 if t_GDF > t_gb else 3
+
+def CD(M):
+    M = np.asarray(M, dtype=float)
+    result = np.where(M < 1, 0.47 * (1 + 0.27 * M**2), 2.0)
+    return result
+
+def aerodynamic_drag_timescale(sigma, Mstar, rho_gas, M = 2):
+    R_star = stellar_radius_approximation(Mstar)
+    C_D = CD(M)
+    return 2 * Mstar / (rho_gas * sigma * C_D * (np.pi * R_star**2))
