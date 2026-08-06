@@ -325,7 +325,7 @@ def Mdot_pl_no_bh_limits(r0,ts, alpha, cv,rho0,fimf,reduced_mass, coulomb,*, Mst
         result  = pref_num1 / pref_denom1 * F1 * (3-alpha)*(1+alpha)**2/cv/G *crho**2 /(1-2*alpha) * r**(1-2*alpha)
         return result.cgs
     def integrate_func2(r):
-        result = pref_num1 / pref_denom1 * F2 * (3-alpha)*(1+alpha)/cv**2/G**2 * crho**2/cm/(-alpha-1)* r**(-1-alpha)
+        result = pref_num1 / pref_denom1 * F2 * (3-alpha)*(1+alpha)**2/cv**2/G**2 * crho**2/cm/(-alpha-1)* r**(-1-alpha)
         return result.cgs
     def integrate_func3(r):
         result = pref_num2 / pref_denom2 * F1 * (3-alpha)*crho**2 * cm /(3-3*alpha)*r**(3-3*alpha)
