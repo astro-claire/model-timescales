@@ -11,11 +11,11 @@ from ..physics.gas import gas_dynamical_friction_timescale, aerodynamic_drag_tim
 from ..physics.dynamical_friction import dynamical_friction_timescale
 from ..physics.relaxation import relaxation_timescale
 from ..physics.coulomb import coulomb_log_BH
-
+from ..physics.accretion import stellar_bondi_accretion_rate, smbh_bondi_accretion_rate, bondi_radius
 
 def per_system_te(
     radii, profile, f=0.01, alpha=1.75, end=1e9,
-    Mstar=1 * u.Msun, imf=None, M_threshold=None,
+    Mstar=1 * u.Msun, 
     velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True,
     sn = True, sn_time = 20*u.Myr,
     gas_effects_off =False,
@@ -41,27 +41,8 @@ def per_system_te(
         End time in years.
     Mstar : Quantity [mass]
         Characteristic stellar mass assumed for collisions.
-    imf : imfBase subclass, optional
-        If provided, uses the IMF to estimate the representative mass and
-        density fraction of stars more massive than M_threshold, and tracks
-        their dynamical friction timescale separately.
-    M_threshold : Quantity [mass], optional
-        Mass above which stars are considered "massive" for the IMF-based DF
-        calculation. Defaults to Mstar if not specified.
     """
-    # ------------------------------------------------------------------ #
-    # IMF: pre-compute representative mass and density fraction once,     #
-    # before the time loop.  Both are insensitive to overall IMF scale.   #
-    # ------------------------------------------------------------------ #
-    use_imf = imf is not None
-    if use_imf:
-        if M_threshold is None:
-            M_threshold = Mstar
-        M_rep_massive, f_mass_massive = imf_representative_mass(imf, M_threshold)
-        print(
-            f"IMF: representative mass above {M_threshold:.2f} = {M_rep_massive:.3f}; "
-            f"mass fraction = {f_mass_massive:.4f}"
-        )
+
     
     if sdf==False: 
         print("WARNING: Stellar dynamical friction is turned OFF for this run.")
@@ -92,6 +73,8 @@ def per_system_te(
     rhostars_trackn = rhostars
     rhogas = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
     rho_prod = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
+    Mcollisions = Mstar
+    r_bondi_bh = bondi_radius(profile.M_bh, cs)
 
     #shell volumes 
     # Midpoints between adjacent radii form the interior edges
@@ -130,7 +113,6 @@ def per_system_te(
     rho_star_array = [rhostars]
     rho_gas_array  = [rhogas]
     constructive_array = [constructive]
-    df_massive_array = []   # populated only when use_imf=True
     central_mass_array = [0*u.Msun] #these will store the mass accreted into the center
     central_mass_rate_array = [0*u.Msun/u.yr]
     central_mass_per_r_rate_array= [np.full(resolution, 0)*(u.Msun/u.yr)] # initially no gas - put a dummy value
@@ -153,22 +135,56 @@ def per_system_te(
         rhostar_old = rhostars
         rhogas_old  = rhogas
 
+
+
+    # ------------------------------------------------------------------ #
+        # PREDICTOR: compute all rates from *current* state (v, rhostars,    #
+        # rhogas) before choosing delta_t. None of these depend on delta_t,  #
+        # so there's no staleness issue.                                     #
+        # ------------------------------------------------------------------ #
+        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
+
+        Mg_coll    = gas_mass_per_collision(v, Mstar, Mcollisions)
+        Mstars_cap = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
+        tinyMstars = np.full(len(Mg_coll), 1e-6 * Mstar.to('Msun').value) * u.Msun
+        Mg_coll_r  = np.where(Mg_coll > 2 * Mstar, Mstars_cap, Mg_coll)
+        Mg_coll_r  = np.where(Mg_coll_r < 1e-6 * Mstar, tinyMstars, Mg_coll_r)
+
+        rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars, 0.001 * f * rhostars, rhogas)
+        g_df   = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
+        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M=2)
+        g_df   = np.where(g_df > g_aero, g_aero, g_df)
+        s_df   = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb=coulomb)
+        s_rlx  = relaxation_timescale(v, rhostars_trackn, Mstar, coulomb=coulomb)
+
+        t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f, v)
+        t_gas_buildup.append(t_buildup_f)
+
+        # Bound delta_t by a safety fraction of *every* relevant loss/production
+        # timescale — this replaces the old "growth only, stale rate" limiter.
+        safety = 0.9  # tunable
+        delta_t = min(
+            min(t_buildup_f.to('yr').value),
+            safety * min(g_df.to('yr').value),
+            safety * min(s_df.to('yr').value),
+            safety * min(s_rlx.to('yr').value),
+        )
         # ------------------------------------------------------------------ #
         # Determine adaptive delta_t
         # ------------------------------------------------------------------ #
-        t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f,v)#[no_collisions.astype(bool)]
-        t_gas_buildup.append(t_buildup_f)
-        delta_t = min(t_buildup_f.to('yr').value)
+        # t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f,v)#[no_collisions.astype(bool)]
+        # t_gas_buildup.append(t_buildup_f)
+        # delta_t = min(t_buildup_f.to('yr').value)
         # Prevent rhogas from changing by more than a factor of 2 per step
-        if timestamp > 1 and not sn_fired_last_step:
-            collision_rate = Mg_coll_r * N_r * rhostars / Mstar / delta_t / u.yr \
-                            + 1e-30 * u.Msun/u.pc**3/u.yr
-            t_gas_limit = (rhogas / collision_rate).to('yr')
-            rhogas_threshold = f * rhostars
-            valid = rhogas > rhogas_threshold
-            #this only needs to be checked if the rhogas is large
-            if np.any(valid):
-                delta_t = min(delta_t, 0.5 * min(t_gas_limit[valid].value))
+        # if timestamp > 1 and not sn_fired_last_step:
+            # collision_rate = Mg_coll_r * N_r * rhostars / Mstar / delta_t / u.yr \
+            #                 + 1e-30 * u.Msun/u.pc**3/u.yr
+            # t_gas_limit = (rhogas / collision_rate).to('yr')
+            # rhogas_threshold = f * rhostars
+            # valid = rhogas > rhogas_threshold
+            # #this only needs to be checked if the rhogas is large
+            # if np.any(valid):
+            #     delta_t = min(delta_t, 0.5 * min(t_gas_limit[valid].value))
 
         if delta_t > end / 10:
             delta_t = end / 10
@@ -201,10 +217,42 @@ def per_system_te(
             break
         
         # ------------------------------------------------------------------ #
+        # CORRECTOR: compute the delta_t-dependent updates, check that no    #
+        # reservoir changes by more than max_frac in this step. If it does,  #
+        # shrink delta_t and only recompute the delta_t-dependent pieces —   #
+        # the rates above (g_df, s_df, s_rlx, Mg_coll_r) don't need redoing. #
+        # ------------------------------------------------------------------ #
+        max_frac = 0.1
+        for _ in range(4):
+            N_r = delta_t * u.yr / collision_t
+            if collisions == False:
+                N_r = N_r * 0.
+
+            collision_loss = Mg_coll_r * N_r * rhostars / Mstar * no_collisions
+            rho_lost_gdf   = rhostars * (delta_t * u.yr) / g_df
+            rho_lost_sdf   = rho_prod * (delta_t * u.yr) / s_df       # include this too —
+            rho_lost_srlx  = rhostars * (delta_t * u.yr) / s_rlx      # it's just as stiff near the transition
+
+            gas_lost = rhogas * (delta_t * u.yr) / g_df
+            if gas_diff == False:
+                gas_lost = gas_lost * 0.
+            gas_lost = np.where(gas_lost > rhogas_old, rhogas_old, gas_lost)
+
+            gas_frac   = np.abs(collision_loss - gas_lost) / (rhogas_old + 1e-30 * u.Msun / u.pc**3)
+            star_frac  = (collision_loss + rho_lost_gdf + rho_lost_sdf + rho_lost_srlx) / (rhostar_old + 1e-30*u.Msun/u.pc**3)
+            worst_frac = max(np.max(gas_frac.value), np.max(star_frac.value))
+
+            if worst_frac <= max_frac or delta_t <= end / 1e9:
+                break
+            delta_t = delta_t * (max_frac / worst_frac) * 0.9   # shrink with margin, retry
+
+
+
+        # ------------------------------------------------------------------ #
         # Number of collisions & accumulated gas mass
         # ------------------------------------------------------------------ #
 
-        Mcollisions = 1 * u.Msun
+        
         collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
         t_collision.append(collision_t)
         N_r         = delta_t * u.yr / collision_t
@@ -220,13 +268,13 @@ def per_system_te(
         # frac_reduction = constructive * np.where((N_r > 1), 1, N_r)
 
         # ------------------------------------------------------------------ #
-        # Dynamical friction: gas DF, stellar DF, and (optionally) massive-   #
-        # star DF from the IMF.                                                #
+        # Dynamical friction: gas DF, stellar DF
+        #                                                 #
         # ------------------------------------------------------------------ #
         # g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars,0.001* f * rhostars, rhogas)
         g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
-        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2)
+        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2) #add self consistent gas temp thing
         g_df = np.where(g_df>g_aero, g_aero, g_df)
         s_df    = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb = coulomb)
         s_rlx = relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb)
@@ -245,9 +293,11 @@ def per_system_te(
         collision_merger_gain  = (2*Mstar - Mg_coll_r) * N_r * rhostars / Mstar * no_collisions
         total_collision_loss   = collision_loss + collision_merger_gain  # = N_r * rhostars
         
-        rho_prod  = rho_prod + collision_merger_gain - rho_prod * (delta_t * u.yr) / s_df
-        rho_prod  = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
-        rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
+        #FIXME track the mass of these
+        rho_prod = rho_prod + collision_merger_gain - rho_prod * (delta_t * u.yr) / s_df
+        rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
+        # rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
+        rho_lost_sdf =  rho_prod * (delta_t * u.yr) / s_df
         rho_lost_srlx = rhostars * (delta_t * u.yr)/s_rlx
 
         gas_lost  = rhogas * (delta_t*u.yr)/g_df  # density of gas lost
@@ -287,28 +337,15 @@ def per_system_te(
         rho_lost_sdf = rho_lost_sdf * scale
         rho_lost_srlx = rho_lost_srlx * scale
 
-        if use_imf:
-            # Density of stars more massive than M_threshold, scaled from the
-            # current total stellar density.  The mass fraction is kept fixed at
-            # its initial IMF value (appropriate for a first-pass estimate).
-            rho_massive = rhostars * f_mass_massive          # Msun/pc^3
-
-            # DF timescale experienced by a star of representative mass M_rep
-            # moving through the full stellar background.
-            sdf_massive = dynamical_friction_timescale(
-                v, rhostars, M_obj=M_rep_massive
-            )
-            gdf_massive = gas_dynamical_friction_timescale(v,M_rep_massive,rhogas)
-            df_massive = np.where(gdf_massive < sdf_massive, gdf_massive, sdf_massive)
-            df_massive_array.append(df_massive)
-
 
         # ------------------------------------------------------------------ #
         # Calculate new densities
         # ------------------------------------------------------------------ #
         rhogas   = (rhogas_old + collision_loss - gas_lost) * supernova_factor
-        rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
-        rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
+        #FIXME add rho_bondi her
+        bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs, v)
+        # rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
+        # rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
 
         rhostars = rhostar_old - total_collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
         rhostars_trackn = (
@@ -323,6 +360,7 @@ def per_system_te(
         #     - (constructive * (N_r * rhostars))-rho_lost_gdf-rho_lost_sdf - rho_lost_srlx
         # ) # this array will give n star when divided by Mstar (since we're not actively updating Mstar)
         mass_accreted_central = shell_vols *(rho_lost_gdf+rho_lost_sdf+rho_lost_srlx)
+
 
         # ------------------------------------------------------------------ #
         # Handle any numerical overflows
@@ -396,6 +434,12 @@ def per_system_te(
         t_array.append(timestamp)
         supernova_factor=1. #reset SN
 
+        #FIXME bare bones here just to draft. 
+        #---------------------- Bondi Accretion on Stars 
+        bondi_mdot_stars = stellar_bondi_accretion_rate(rhogas,Mstar,cs, v)
+        Mstar += bondi_mdot_stars
+
+
     print("Iterated through " + str(len(t_array)) + " steps")
 
     result = dict(
@@ -415,10 +459,7 @@ def per_system_te(
         t_rlx = t_relaxation,
         # central_volumetric_rate = central_volumetric_rate_array,
     )
-    if use_imf:
-        result['df_massive']      = df_massive_array
-        result['M_rep_massive']   = M_rep_massive
-        result['f_mass_massive']  = f_mass_massive
+
     return result
 
 
@@ -426,6 +467,8 @@ def per_system_te(
 #additional functions
 # ------------------------------------------------------------------ #
 def imf_representative_mass(imf, M_threshold):
+
+    #NOT USING THIS ANYMORE BUT LEAVING FOR POSTERITY
     """
     Compute the number-weighted mean mass and mass fraction of stars above
     M_threshold, using the IMF piecewise power-law directly.
