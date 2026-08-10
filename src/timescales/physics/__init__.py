@@ -6,6 +6,7 @@ from . import relaxation
 from . import coulomb
 from . import halo_environment
 from . import gas
+from . import accretion
 
 __all__ = [
     "stars",
@@ -15,4 +16,5 @@ __all__ = [
     "coulomb",
     "halo_environment",
     "gas",
+    "accretion",
 ]
