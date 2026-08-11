@@ -123,7 +123,7 @@ def per_system_te(
     t_relaxation = [relaxation_timescale(sigma,rhostars,Mstar,coulomb=coulomb)]
 
     # 2 phase gas model 
-    ## TODO add in options
+    ## TODO add in kwargs instead of heres
     ##-----Phase 1: dense ionized filaments
     n1     = 3e4 * u.cm**-3
     T1     = 8000 * u.K
@@ -305,8 +305,11 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         # g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars,0.001* f * rhostars, rhogas)
-        g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
-        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2) #TODO add self consistent gas temp thing
+        # g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
+        # g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2) #TODO add self consistent gas temp thing
+        g_df = gas_2phase_dynamical_friction_timescale(v,Mstar,rho1,T1,v/cs1,mu1, rhogas, T2, v/cs2, mu2, f1)
+        g_aero = aerodynamic_2phase_drag_timescale(v,Mstar,rho1, T1,v/cs1,mu1,
+                                                        rhogas, T2, v/cs2,mu2,f1) 
         g_df = np.where(g_df>g_aero, g_aero, g_df)
         s_df    = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb = coulomb)
         s_rlx = relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb)
@@ -325,7 +328,7 @@ def per_system_te(
         collision_merger_gain  = (2*Mstar - Mg_coll_r) * N_r * rhostars / Mstar * no_collisions
         total_collision_loss   = collision_loss + collision_merger_gain  # = N_r * rhostars
         
-        #FIXME track the mass of these
+        #FIXME track the mass of these?
         rho_prod = rho_prod + collision_merger_gain - rho_prod * (delta_t * u.yr) / s_df
         rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
         # rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
@@ -375,7 +378,7 @@ def per_system_te(
         # ------------------------------------------------------------------ #
         rhogas   = (rhogas_old + collision_loss - gas_lost) * supernova_factor
         if bondi_bh:
-            bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs)
+            bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs2)
             rhogas = rhogas - (bondi_mdot_bh * delta_t *u.yr * bondi_radii/shell_vols )
         # rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
         # rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
@@ -427,7 +430,8 @@ def per_system_te(
         # gas velocity damping for the next timestep
         # ------------------------------------------------------------------ #
         if velocity_damping:
-            t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+            # t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
+            t_gdf = gas_2phase_dynamical_friction_timescale(v,Mstar,rho1,T1,v/cs1,mu1, rhogas, T2, v/cs2, mu2, f1)
             decay = np.exp(-delta_t * u.yr / t_gdf)
             v = v * decay
 
@@ -467,7 +471,6 @@ def per_system_te(
         t_array.append(timestamp)
         supernova_factor=1. #reset SN
 
-        #FIXME bare bones here just to draft. 
         #---------------------- Bondi Accretion on Stars 
         if bondi_stars:
             #bondi_mdot_stars = stellar_bondi_accretion_rate(rhogas,Mstar,cs, v)
