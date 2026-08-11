@@ -3,21 +3,24 @@ Time evolution scripts
 """
 import numpy as np
 import astropy.units as u
+from astropy.constants import m_p
 from ..physics.collisions import collision_timescale
 from ..physics.gas import gas_mass_per_collision
 from ..utils.energy import escape_velocity
 from ..physics.stars import stellar_radius_approximation
-from ..physics.gas import gas_dynamical_friction_timescale, aerodynamic_drag_timescale
+from ..physics.gas import sound_speed, gas_dynamical_friction_timescale, aerodynamic_drag_timescale, aerodynamic_2phase_drag_timescale, gas_2phase_dynamical_friction_timescale
 from ..physics.dynamical_friction import dynamical_friction_timescale
 from ..physics.relaxation import relaxation_timescale
 from ..physics.coulomb import coulomb_log_BH
-from ..physics.accretion import stellar_bondi_accretion_rate, smbh_bondi_accretion_rate, bondi_radius
+from ..physics.accretion import  stellar_2phase_bondi_accretion_rate, stellar_bondi_accretion_rate, smbh_bondi_accretion_rate, bondi_radius
 
 def per_system_te(
-    radii, profile, f=0.01, alpha=1.75, end=1e9,
+    radii, profile, f=0.01, alpha=1.75, end=1e9,f1 = 0.05, 
     Mstar=1 * u.Msun, 
     velocity_damping = True, gdf = True, sdf = True, gas_diff = True, collisions=True,
     sn = True, sn_time = 20*u.Myr,
+    bondi_stars = True,
+    bondi_bh = True,
     gas_effects_off =False,
     rlx_only =False, #these are the physical effects that can be included
 ):
@@ -35,6 +38,8 @@ def per_system_te(
         Density/velocity-dispersion profile.
     f : float
         Gas buildup fraction threshold.
+    f1 : float
+        Dense gas fraction in the 2phase model
     alpha : float
         Stellar density power-law slope.
     end : float
@@ -56,12 +61,18 @@ def per_system_te(
         print("WARNING: Supernovae turned OFF for this run.")
     if collisions == False:
         print("WARNING: collisions turned OFF for this run")
+    if bondi_bh == False:
+        print("WARNING: Black Hole bondi accretion turned OFF for this run")    
+    if bondi_stars == False:
+        print("WARNING: stellar bondi accretion turned OFF for this run")
     if gas_effects_off:
         print("TURNING OFF ALL GAS DYNAMICS")
         gdf = False
         velocity_damping = False
         gas_diff = False
         sn =False
+        bondi_bh = False
+        bondi_stars = False
     if gdf ==False and velocity_damping==False and sn ==False and gas_diff ==False and collisions==False:
         print("WARNING: it's a relaxation only integration")
         rlx_only = True
@@ -74,7 +85,11 @@ def per_system_te(
     rhogas = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
     rho_prod = np.zeros(len(radii.value)) * (u.Msun / u.pc**3)
     Mcollisions = Mstar
+    Mstar = np.full(len(radii), Mstar.value) * Mstar.unit #turning this into an array so we can track the mass accretion
+    cs = sound_speed(1e7*u.K)
     r_bondi_bh = bondi_radius(profile.M_bh, cs)
+    bondi_radii = np.where(radii<r_bondi_bh, 1, 0) #radii within the black hole's bondi radius 
+
 
     #shell volumes 
     # Midpoints between adjacent radii form the interior edges
@@ -86,7 +101,7 @@ def per_system_te(
     edges = np.concatenate([[r_inner], mid, [r_outer]])
     # Shell volume centered on each radius, length n
     shell_vols = (4./3.) * np.pi * (edges[1:]**3 - edges[:-1]**3)
-    shell_floors = 1*u.Msun / shell_vols #can't have less than 1 star in each shell for collisions.
+    shell_floors = Mstar / shell_vols #can't have less than 1 star in each shell for collisions.
 
     # Physical values for merger criterion
     v_esc_star   = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
@@ -101,11 +116,25 @@ def per_system_te(
     coulomb = coulomb_log_BH(profile.M_bh,radii, sigma)
     #initial timescale tracking
     resolution = len(radii)
-    t_df =[dynamical_friction_timescale(v, rhostars, M_obj=2 * Mstar, coulomb=coulomb)]
+    t_df =[dynamical_friction_timescale(v, rhostars, M_obj=2 * Mcollisions, coulomb=coulomb)]
     t_collision = [t_coll(radii, profile, rhostars, v, alpha=alpha)]
     t_gas_df= [np.full(resolution, -1)*u.yr] # initially no gas - put a dummy value
     t_gas_buildup = [calculate_buildup_time(radii, profile, rhostars, alpha, f,v)]
     t_relaxation = [relaxation_timescale(sigma,rhostars,Mstar,coulomb=coulomb)]
+
+    # 2 phase gas model 
+    ## TODO add in options
+    ##-----Phase 1: dense ionized filaments
+    n1     = 3e4 * u.cm**-3
+    T1     = 8000 * u.K
+    mu1    = 0.5              # mean molecular weight (fully ionized H)
+    rho1 = (2 * mu1 * n1 * m_p).to(u.g / u.cm**3)
+    cs1 = sound_speed(T1, mu=mu1)
+    # Phase 2: hot volume-filling plasma
+    T2     = 1e7 * u.K
+    mu2    = 0.5
+    cs2 = sound_speed(T2, mu=mu2)
+
 
     # Setup loop
     timestamp = 1
@@ -145,14 +174,17 @@ def per_system_te(
         collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
 
         Mg_coll    = gas_mass_per_collision(v, Mstar, Mcollisions)
-        Mstars_cap = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
-        tinyMstars = np.full(len(Mg_coll), 1e-6 * Mstar.to('Msun').value) * u.Msun
-        Mg_coll_r  = np.where(Mg_coll > 2 * Mstar, Mstars_cap, Mg_coll)
-        Mg_coll_r  = np.where(Mg_coll_r < 1e-6 * Mstar, tinyMstars, Mg_coll_r)
+        Mstars_cap = np.full(len(Mg_coll), 2 * Mcollisions.to('Msun').value) * u.Msun
+        tinyMstars = np.full(len(Mg_coll), 1e-6 * Mcollisions.to('Msun').value) * u.Msun
+        Mg_coll_r  = np.where(Mg_coll > 2 * Mcollisions, Mstars_cap, Mg_coll)
+        Mg_coll_r  = np.where(Mg_coll_r < 1e-6 * Mcollisions, tinyMstars, Mg_coll_r)
 
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars, 0.001 * f * rhostars, rhogas)
-        g_df   = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
-        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M=2)
+        # g_df   = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
+        g_df = gas_2phase_dynamical_friction_timescale(v,Mstar,rho1,T1,v/cs1,mu1, rhogas, T2, v/cs2, mu2, f1)
+        #g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M=2)
+        g_aero = aerodynamic_2phase_drag_timescale(v,Mstar,rho1, T1,v/cs1,mu1,
+                                                        rhogas, T2, v/cs2,mu2,f1) 
         g_df   = np.where(g_df > g_aero, g_aero, g_df)
         s_df   = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb=coulomb)
         s_rlx  = relaxation_timescale(v, rhostars_trackn, Mstar, coulomb=coulomb)
@@ -186,7 +218,7 @@ def per_system_te(
             # if np.any(valid):
             #     delta_t = min(delta_t, 0.5 * min(t_gas_limit[valid].value))
 
-        if delta_t > end / 10:
+        if delta_t > end / 10: #force integration over 10 steps
             delta_t = end / 10
 
         
@@ -259,10 +291,10 @@ def per_system_te(
         if collisions ==False:
             N_r = N_r*0.
         Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
-        Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
+        # Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
         tinyMstars      = np.full(len(Mg_coll),0.000001 * Mstar.to('Msun').value) * u.Msun
-        Mg_coll_r   = np.where(Mg_coll > 2 * Mstar, Mstars, Mg_coll)
-        Mg_coll_r   = np.where(Mg_coll_r<0.000001 *Mstar,tinyMstars, Mg_coll_r )
+        Mg_coll_r   = np.where(Mg_coll > 2 * Mstar,  2 * Mstar, Mg_coll)
+        Mg_coll_r   = np.where(Mg_coll_r<0.000001 *Mcollisions,tinyMstars, Mg_coll_r ) #mcollisions is an astropy float with the original mass
         # print(Mg_coll_r)
         # # Constructive fraction not used yet
         # frac_reduction = constructive * np.where((N_r > 1), 1, N_r)
@@ -274,7 +306,7 @@ def per_system_te(
         # g_df    = gas_dynamical_friction_timescale(v, Mstar, rhogas)
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars,0.001* f * rhostars, rhogas)
         g_df = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
-        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2) #add self consistent gas temp thing
+        g_aero = aerodynamic_drag_timescale(v, Mstar, rhogas_gdf, M = 2) #TODO add self consistent gas temp thing
         g_df = np.where(g_df>g_aero, g_aero, g_df)
         s_df    = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb = coulomb)
         s_rlx = relaxation_timescale(v,rhostars_trackn,Mstar,coulomb = coulomb)
@@ -339,11 +371,12 @@ def per_system_te(
 
 
         # ------------------------------------------------------------------ #
-        # Calculate new densities
+        # Calculate new densities, depleting r_bondi at the bondi rate
         # ------------------------------------------------------------------ #
         rhogas   = (rhogas_old + collision_loss - gas_lost) * supernova_factor
-        #FIXME add rho_bondi her
-        bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs, v)
+        if bondi_bh:
+            bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs)
+            rhogas = rhogas - (bondi_mdot_bh * delta_t *u.yr * bondi_radii/shell_vols )
         # rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
         # rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
 
@@ -436,8 +469,13 @@ def per_system_te(
 
         #FIXME bare bones here just to draft. 
         #---------------------- Bondi Accretion on Stars 
-        bondi_mdot_stars = stellar_bondi_accretion_rate(rhogas,Mstar,cs, v)
-        Mstar += bondi_mdot_stars
+        if bondi_stars:
+            #bondi_mdot_stars = stellar_bondi_accretion_rate(rhogas,Mstar,cs, v)
+            bondi_mdot_stars = stellar_2phase_bondi_accretion_rate(rho1,rhogas,Mstar,cs1,cs2,v, f1)
+            Mstar += bondi_mdot_stars * delta_t * u.yr
+            print(Mstar)
+
+            
 
 
     print("Iterated through " + str(len(t_array)) + " steps")
