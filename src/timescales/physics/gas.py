@@ -134,12 +134,103 @@ def classify_gas_regime(t_gb, t_SN, t_GDF):
         return 1
     return 2 if t_GDF > t_gb else 3
 
-def CD(M):
+# def CD(M):
+#     M = np.asarray(M, dtype=float)
+#     result = np.where(M < 1, 0.47 * (1 + 0.27 * M**2), 2.0)
+#     return result
+def IM(M):
     M = np.asarray(M, dtype=float)
-    result = np.where(M < 1, 0.47 * (1 + 0.27 * M**2), 2.0)
+    result = np.zeros_like(M)
+    
+    subsonic = M < 1
+    supersonic = M > 1
+    sonic = M == 1
+    
+    result[subsonic] = 0.5 * np.log((1 + M[subsonic]) / (1 - M[subsonic])) - M[subsonic]
+    result[supersonic] = 0.5 * np.log((1 + M[supersonic]) / (M[supersonic] - 1))
+    
+    if np.any(sonic):
+        print("WARNING: Mach 1 is undefined; setting to NaN")
+        result[sonic] = np.nan
+    
     return result
 
-def aerodynamic_drag_timescale(sigma, Mstar, rho_gas, M = 2):
+def CD(Mach,  v, T, mu,Kn=1):
+    """
+    Drag coefficient C_d for a sphere, covering free-molecular and continuum
+    limits across subsonic and supersonic regimes.
+
+    Subsonic, free-molecular (Kn >> 1): Epstein (1924) drag, recast as an
+        effective C_d by dividing the Epstein force by (1/2 rho v^2 pi R^2).
+        F_Epstein = (4pi/3) * R^2 * rho * v_th * v * (1 + 9pi/64)
+        => C_d = (8/3) * (v_th / v) * (1 + 9pi/64)
+
+    Subsonic, continuum (Kn << 1): C_d = 0.47 (high-Re sphere, Batchelor 1967)
+
+    Supersonic (either regime): C_d = 2 (Rephaeli & Salpeter 1980)
+
+    The two subsonic branches are blended via a smooth Knudsen-number weight
+    so there is no discontinuity at intermediate Kn.
+
+    Parameters
+    ----------
+    Mach : array-like, dimensionless Mach number
+    Kn   : array-like, Knudsen number = lambda_mfp / R_star
+    v    : astropy Quantity array, velocity of the star
+    T    : astropy Quantity, gas temperature (for thermal speed)
+    mu   : float, mean molecular weight
+
+    Returns
+    -------
+    C_d : ndarray, dimensionless
+    """
+    Mach = np.asarray(Mach, dtype=float)
+    Kn   = np.asarray(Kn,   dtype=float)
+
+    # thermal speed of gas particles
+    v_th = np.sqrt(8 * c.k_B * T / (np.pi * mu * c.m_p)).to(u.cm / u.s)
+    v_cgs = v.to(u.cm / u.s).value
+
+    # Epstein C_d (free-molecular subsonic limit)
+    Cd_epstein   = (8 / 3) * (v_th.value / v_cgs) * (1 + 9 * np.pi / 64)
+
+    # Continuum C_d (high-Re sphere, subsonic)
+    Cd_continuum = 0.47 * np.ones_like(Mach)
+
+    # Blend: weight = sigmoid in log(Kn), transition at Kn ~ 1
+    # w -> 1 (free-molecular) for Kn >> 1, w -> 0 (continuum) for Kn << 1
+    w = 1 / (1 + np.exp(-2 * np.log(Kn)))
+
+    Cd_subsonic = w * Cd_epstein + (1 - w) * Cd_continuum
+
+    # Supersonic: C_d = 2 everywhere (both regimes converge here)
+    Cd = np.where(Mach >= 1, 2.0, Cd_subsonic)
+
+    return Cd
+
+def aerodynamic_drag_timescale(sigma, Mstar, rho_gas, M = 2, T=1e4*u.K, mu = 1.4, Kn = 1):
     R_star = stellar_radius_approximation(Mstar)
-    C_D = CD(M)
+    C_D = CD(M, sigma, T, mu, Kn=Kn)
     return 2 * Mstar / (rho_gas * sigma * C_D * (np.pi * R_star**2))
+
+
+
+def sound_speed(T, mu = 0.5):
+    """Adiabatic sound speed for ideal monatomic gas."""
+    gamma = 5/3
+    return np.sqrt(gamma * c.k_B * T / (mu * c.m_p)).to(u.km/u.s)
+
+def aerodynamic_2phase_drag_timescale(sigma, Mstar, rho_gas1, T1, M1, mu1,rho_gas2, T2, M2, mu2, f):
+    f2 = (1-f)
+    F_aero_bh1 = 0.5*CD(M1, sigma,T1,mu1)*np.pi*(stellar_radius_approximation(Mstar))**2 * rho_gas1 * sigma**2
+    F_aero_bh2 = 0.5*CD(M2, sigma,T2,mu2)*np.pi*(stellar_radius_approximation(Mstar))**2 * rho_gas2 * sigma**2
+    F_aero_bh = (f * F_aero_bh1) + (f2 * F_aero_bh2)
+    return (sigma/(F_aero_bh/Mstar)).to('yr')
+
+def gas_2phase_dynamical_friction_timescale(sigma, Mstar, rho_gas1, T1, M1, mu1,rho_gas2, T2, M2, mu2, f):
+    f2 = (1-f)
+
+    F_gdf_bh1  = 4.*np.pi*(c.G*Mstar)**2 * rho_gas1 / (sigma**2) * IM(M1)
+    F_gdf_bh2  = 4.*np.pi*(c.G*Mstar)**2 * rho_gas2 / (sigma**2) * IM(M2)
+    F_gdf_bh = (f * F_gdf_bh1) + (f2 * F_gdf_bh2)
+    return (sigma/(F_gdf_bh/Mstar)).to('yr')
