@@ -224,7 +224,7 @@ def aerodynamic_2phase_drag_timescale(sigma, Mstar, rho_gas1, T1, M1, mu1,rho_ga
     f2 = (1-f)
     F_aero_bh1 = 0.5*CD(M1, sigma,T1,mu1)*np.pi*(stellar_radius_approximation(Mstar))**2 * rho_gas1 * sigma**2
     F_aero_bh2 = 0.5*CD(M2, sigma,T2,mu2)*np.pi*(stellar_radius_approximation(Mstar))**2 * rho_gas2 * sigma**2
-    F_aero_bh = (f * F_aero_bh1) + (f2 * F_aero_bh2)
+    F_aero_bh = ( F_aero_bh1) + (f2 * F_aero_bh2)
     return (sigma/(F_aero_bh/Mstar)).to('yr')
 
 def gas_2phase_dynamical_friction_timescale(sigma, Mstar, rho_gas1, T1, M1, mu1,rho_gas2, T2, M2, mu2, f):
@@ -232,5 +232,5 @@ def gas_2phase_dynamical_friction_timescale(sigma, Mstar, rho_gas1, T1, M1, mu1,
 
     F_gdf_bh1  = 4.*np.pi*(c.G*Mstar)**2 * rho_gas1 / (sigma**2) * IM(M1)
     F_gdf_bh2  = 4.*np.pi*(c.G*Mstar)**2 * rho_gas2 / (sigma**2) * IM(M2)
-    F_gdf_bh = (f * F_gdf_bh1) + (f2 * F_gdf_bh2)
+    F_gdf_bh = ( F_gdf_bh1) + (f2 * F_gdf_bh2)
     return (sigma/(F_gdf_bh/Mstar)).to('yr')
