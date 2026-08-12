@@ -87,15 +87,33 @@ def per_system_te(
     Mcollisions = Mstar
     Mstar = np.full(len(radii), Mstar.value) * Mstar.unit #turning this into an array so we can track the mass accretion
     cs = sound_speed(1e7*u.K)
+    
+    #BH Bondi physcs
     r_bondi_bh = bondi_radius(profile.M_bh, cs)
-    bondi_radii = np.where(radii<r_bondi_bh, 1, 0) #radii within the black hole's bondi radius 
+    #bondi_radii = np.where(radii<r_bondi_bh, 1, 0) #radii within the black hole's bondi radius 
+    cs = sound_speed(1e7 * u.K)
+    r_bondi_bh = bondi_radius(profile.M_bh, cs)
 
+    in_bondi   = radii < r_bondi_bh          # boolean, not 0/1
+    n_in_bondi = int(np.count_nonzero(in_bondi))
+
+    if bondi_bh:
+        if n_in_bondi == 0:
+            print("WARNING: no shells inside r_B = "
+                f"{r_bondi_bh.to('pc'):.3g}; SMBH accretion will be inactive.")
+        elif n_in_bondi == len(radii):
+            print(f"WARNING: r_B = {r_bondi_bh.to('pc'):.3g} exceeds the outer grid "
+                "radius; the entire cluster is inside the Bondi sphere.")
+
+    M_bh_accreted = 0 * u.Msun               # cumulative, diagnostic
 
     #shell volumes 
     # Midpoints between adjacent radii form the interior edges
     mid = 0.5 * (radii[:-1] + radii[1:])
+    mid = np.sqrt(radii[:-1]*radii[1:])
     # Extrapolate the first and last edges symmetrically
-    r_inner = radii[0]  - (mid[0]  - radii[0])   # = 2*r[0] - mid[0]
+    # r_inner = radii[0]  - (mid[0]  - radii[0])   # = 2*r[0] - mid[0]
+    r_inner = radii[0]**2/mid[0]
     r_outer = radii[-1] + (radii[-1] - mid[-1])   # = 2*r[-1] - mid[-1]
     # Full edge array, length n+1
     edges = np.concatenate([[r_inner], mid, [r_outer]])
@@ -134,8 +152,11 @@ def per_system_te(
     T2     = 1e7 * u.K
     mu2    = 0.5
     cs2 = sound_speed(T2, mu=mu2)
-
-
+    
+    n2     = 100 * u.cm**-3
+    #rho2 = (2 * mu2* n2 * m_p).to(u.g / u.cm**3)
+    # rho1factor = rho1/rho2
+    rho1 = f1* rhogas
     # Setup loop
     timestamp = 1
     t_array        = [timestamp]
@@ -145,11 +166,15 @@ def per_system_te(
     central_mass_array = [0*u.Msun] #these will store the mass accreted into the center
     central_mass_rate_array = [0*u.Msun/u.yr]
     central_mass_per_r_rate_array= [np.full(resolution, 0)*(u.Msun/u.yr)] # initially no gas - put a dummy value
+    M_bh_accreted_array = [0 * u.Msun]
+    mdot_bh_array = [0 * u.Msun / u.yr]
 
     r_central_mass_max_array = [0*u.pc]
     central_volumetric_rate_array = [0* (u.Msun / u.pc**3/u.yr)]
     no_collisions = np.ones(resolution) #initially, collisions are allowed to occur everywhere in the cluster
-    
+
+    floor = 1e-4 * (u.Msun / u.pc**3)
+
     supernova_timer =1
     supernova_factor = 1. 
     sn_fired_this_step = False
@@ -171,13 +196,13 @@ def per_system_te(
         # rhogas) before choosing delta_t. None of these depend on delta_t,  #
         # so there's no staleness issue.                                     #
         # ------------------------------------------------------------------ #
-        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
+        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha, Mstar = Mstar, Mcollisions=Mstar)
 
-        Mg_coll    = gas_mass_per_collision(v, Mstar, Mcollisions)
-        Mstars_cap = np.full(len(Mg_coll), 2 * Mcollisions.to('Msun').value) * u.Msun
-        tinyMstars = np.full(len(Mg_coll), 1e-6 * Mcollisions.to('Msun').value) * u.Msun
-        Mg_coll_r  = np.where(Mg_coll > 2 * Mcollisions, Mstars_cap, Mg_coll)
-        Mg_coll_r  = np.where(Mg_coll_r < 1e-6 * Mcollisions, tinyMstars, Mg_coll_r)
+        Mg_coll    = gas_mass_per_collision(v, Mstar, Mstar)
+        Mstars_cap = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
+        tinyMstars = np.full(len(Mg_coll), (1e-6 * u.Msun).value) * u.Msun
+        Mg_coll_r  = np.where(Mg_coll > 2 * Mstar, Mstars_cap, Mg_coll)
+        Mg_coll_r  = np.where(Mg_coll_r < 1e-6 * Mstar, tinyMstars, Mg_coll_r)
 
         rhogas_gdf = np.where(rhogas < 0.001 * f * rhostars, 0.001 * f * rhostars, rhogas)
         # g_df   = gas_dynamical_friction_timescale(v, Mstar, rhogas_gdf)
@@ -189,17 +214,17 @@ def per_system_te(
         s_df   = dynamical_friction_timescale(v, rhostars_trackn, M_obj=2 * Mstar, coulomb=coulomb)
         s_rlx  = relaxation_timescale(v, rhostars_trackn, Mstar, coulomb=coulomb)
 
-        t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f, v)
+        t_buildup_f = calculate_buildup_time(radii, profile, rhostars_trackn, alpha, f, v, Mstar =Mstar)
         t_gas_buildup.append(t_buildup_f)
 
         # Bound delta_t by a safety fraction of *every* relevant loss/production
         # timescale — this replaces the old "growth only, stale rate" limiter.
         safety = 0.9  # tunable
         delta_t = min(
-            min(t_buildup_f.to('yr').value),
-            safety * min(g_df.to('yr').value),
-            safety * min(s_df.to('yr').value),
-            safety * min(s_rlx.to('yr').value),
+            min(t_buildup_f.to('yr').value[no_collisions.astype(bool)]),
+            safety * min(g_df.to('yr').value[no_collisions.astype(bool)]),
+            safety * min(s_df.to('yr').value[no_collisions.astype(bool)]),
+            safety * min(s_rlx.to('yr').value[no_collisions.astype(bool)]),
         )
         # ------------------------------------------------------------------ #
         # Determine adaptive delta_t
@@ -272,7 +297,7 @@ def per_system_te(
 
             gas_frac   = np.abs(collision_loss - gas_lost) / (rhogas_old + 1e-30 * u.Msun / u.pc**3)
             star_frac  = (collision_loss + rho_lost_gdf + rho_lost_sdf + rho_lost_srlx) / (rhostar_old + 1e-30*u.Msun/u.pc**3)
-            worst_frac = max(np.max(gas_frac.value), np.max(star_frac.value))
+            worst_frac = max(np.max(gas_frac.value[no_collisions.astype(bool)]), np.max(star_frac.value[no_collisions.astype(bool)]))
 
             if worst_frac <= max_frac or delta_t <= end / 1e9:
                 break
@@ -285,16 +310,16 @@ def per_system_te(
         # ------------------------------------------------------------------ #
 
         
-        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha)
+        collision_t = t_coll(radii, profile, rhostars_trackn, v, alpha=alpha, Mstar = Mstar, Mcollisions=Mstar)
         t_collision.append(collision_t)
         N_r         = delta_t * u.yr / collision_t
         if collisions ==False:
             N_r = N_r*0.
-        Mg_coll     = gas_mass_per_collision(v, Mstar, Mcollisions)
+        Mg_coll     = gas_mass_per_collision(v, Mstar, Mstar)
         # Mstars      = np.full(len(Mg_coll), 2 * Mstar.to('Msun').value) * u.Msun
-        tinyMstars      = np.full(len(Mg_coll),0.000001 * Mstar.to('Msun').value) * u.Msun
+        tinyMstars      = np.full(len(Mg_coll), (1e-6 * u.Msun).value) * u.Msun
         Mg_coll_r   = np.where(Mg_coll > 2 * Mstar,  2 * Mstar, Mg_coll)
-        Mg_coll_r   = np.where(Mg_coll_r<0.000001 *Mcollisions,tinyMstars, Mg_coll_r ) #mcollisions is an astropy float with the original mass
+        Mg_coll_r   = np.where(Mg_coll_r<0.000001 *Mstar,tinyMstars, Mg_coll_r ) #mcollisions is an astropy float with the original mass
         # print(Mg_coll_r)
         # # Constructive fraction not used yet
         # frac_reduction = constructive * np.where((N_r > 1), 1, N_r)
@@ -320,73 +345,107 @@ def per_system_te(
         total_df        = np.where(g_df < s_df, g_df, s_df)
         total_df_status = np.where(g_df < s_df, 'g', 's')
 
-        rho_lost_gdf = rhostars*(delta_t*u.yr)/g_df
+        # ---- raw loss/production terms, all from start-of-step state ---- #
+        rho_lost_gdf  = rhostars * (delta_t * u.yr) / g_df
+        rho_lost_srlx = rhostars * (delta_t * u.yr) / s_rlx
+        rho_lost_sdf  = rho_prod * (delta_t * u.yr) / s_df      # old rho_prod
 
-        # rho_lost_sdf = constructive * (delta_t*u.yr)/s_df * N_r * rhostars *no_collisions
+        collision_loss        = Mg_coll_r * N_r * rhostars / Mstar * no_collisions
+        collision_merger_gain = (2*Mstar - Mg_coll_r) * N_r * rhostars / Mstar * no_collisions
 
-        collision_loss = Mg_coll_r * N_r * rhostars / Mstar *no_collisions
-        collision_merger_gain  = (2*Mstar - Mg_coll_r) * N_r * rhostars / Mstar * no_collisions
-        total_collision_loss   = collision_loss + collision_merger_gain  # = N_r * rhostars
-        
-        #FIXME track the mass of these?
-        rho_prod = rho_prod + collision_merger_gain - rho_prod * (delta_t * u.yr) / s_df
-        rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
-        # rho_lost_sdf = constructive * rho_prod * (delta_t * u.yr) / s_df
-        rho_lost_sdf =  rho_prod * (delta_t * u.yr) / s_df
-        rho_lost_srlx = rhostars * (delta_t * u.yr)/s_rlx
+        # ---- non-finite guard ---- #
+        zero = 0 * rhostar_old
+        rho_lost_gdf  = np.where(np.isfinite(rho_lost_gdf.value),  rho_lost_gdf,  zero)
+        rho_lost_sdf  = np.where(np.isfinite(rho_lost_sdf.value),  rho_lost_sdf,  zero)
+        rho_lost_srlx = np.where(np.isfinite(rho_lost_srlx.value), rho_lost_srlx, zero)
 
-        gas_lost  = rhogas * (delta_t*u.yr)/g_df  # density of gas lost
-        if gas_diff ==False: 
-            gas_lost = gas_lost * 0.
-        gas_lost = np.where(
-            gas_lost > rhogas_old,
-            rhogas_old,
-            gas_lost
-        ) # make sure no more than the current gas amount is lost. 
+        if gdf is False:
+            rho_lost_gdf = rho_lost_gdf * 0.
+        if sdf is False:
+            rho_lost_sdf = rho_lost_sdf * 0.
 
+        # ---- cap total removal at (rho_* - floor), not rho_* ---- #
+        # A shell sitting exactly on the floor has max_removable == 0, so
+        # scale == 0 and every loss term vanishes: the shell is frozen, no
+        # mass is invented, and nothing leaks into mass_accreted_central.
+        max_removable = np.maximum(rhostar_old - floor, 0 * floor)
+        total_loss = collision_loss + rho_lost_gdf + rho_lost_sdf + rho_lost_srlx
 
-        # Cap loss terms to at most the available stellar density
-        rho_lost_gdf = np.where(
-            np.isfinite(rho_lost_gdf.value), rho_lost_gdf, rhostar_old
-        )
-        rho_lost_sdf = np.where(
-            np.isfinite(rho_lost_sdf.value), rho_lost_sdf, rhostar_old
-        )
-        rho_lost_srlx = np.where(
-            np.isfinite(rho_lost_srlx.value), rho_lost_srlx, rhostar_old
-        )
-        if gdf ==False: #option to turn off gas dynamical friction
-            rho_lost_gdf= rho_lost_gdf * 0.
-        if sdf ==False:  #option to turn off stellar dynamical friction
-            rho_lost_sdf = rho_lost_sdf* 0. 
-        # Ensure combined losses don't exceed what's available
-        total_loss = (Mg_coll_r * N_r * rhostars / Mstar) + rho_lost_gdf + rho_lost_sdf + rho_lost_srlx
-        scale = np.where(
-            total_loss > rhostar_old,
-            rhostar_old / total_loss,
-            np.ones(len(radii.value))
-        )
-        collision_loss = collision_loss * scale
+        with np.errstate(divide='ignore', invalid='ignore'):
+            scale = np.where(
+                total_loss > max_removable,
+                (max_removable / total_loss).to_value(u.dimensionless_unscaled),
+                1.0,
+            )
+        scale = np.where(np.isfinite(scale), scale, 1.0)   # total_loss == 0 case
 
-        rho_lost_gdf = rho_lost_gdf * scale
-        rho_lost_sdf = rho_lost_sdf * scale
-        rho_lost_srlx = rho_lost_srlx * scale
+        # ---- apply the same scale to every term, including rho_prod's ---- #
+        collision_loss        = collision_loss * scale
+        collision_merger_gain = collision_merger_gain * scale
+        rho_lost_gdf          = rho_lost_gdf * scale
+        rho_lost_sdf          = rho_lost_sdf * scale
+        rho_lost_srlx         = rho_lost_srlx * scale
+
+        rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
+        rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3),
+                            0 * (u.Msun/u.pc**3), rho_prod)
+        rho_prod = np.minimum(rho_prod, rhostar_old)   # products are a subset of rho_*
 
 
         # ------------------------------------------------------------------ #
         # Calculate new densities, depleting r_bondi at the bondi rate
         # ------------------------------------------------------------------ #
         rhogas   = (rhogas_old + collision_loss - gas_lost) * supernova_factor
-        if bondi_bh:
-            bondi_mdot_bh = smbh_bondi_accretion_rate(rhogas,Mstar,cs2)
-            rhogas = rhogas - (bondi_mdot_bh * delta_t *u.yr * bondi_radii/shell_vols )
+
+        if bondi_bh and n_in_bondi > 0:
+            # Gas currently available inside the Bondi sphere
+            m_gas_shell = (rhogas * shell_vols)[in_bondi]
+            M_gas_bondi = m_gas_shell.sum()
+
+            if M_gas_bondi > 0 * u.Msun:
+                # ONE global rate, set by the volume-averaged density inside r_B.
+                # (Using the mean interior density rather than rho at r_B makes the
+                #  rate self-limiting as the Bondi sphere empties.)
+                V_bondi   = shell_vols[in_bondi].sum()
+                rho_bondi = (M_gas_bondi / V_bondi).to(u.Msun / u.pc**3)
+                #eddington limited FIXME have the fractional efficiency as a kwarg
+                eps = 0.1
+                mdot_bh = smbh_bondi_accretion_rate(rho_bondi, profile.M_bh, cs2)
+                mdot_edd = (2.2e-8 * (profile.M_bh / u.Msun).decompose() / (0.1/eps)) * u.Msun / u.yr
+                mdot_bh  = min(mdot_bh, mdot_edd)   # apply before computing dM_bh
+
+                dM_bh   = (mdot_bh * delta_t * u.yr).to(u.Msun)
+
+                # Cannot accrete more gas than the Bondi sphere holds
+                if dM_bh > M_gas_bondi:
+                    dM_bh   = M_gas_bondi
+                    mdot_bh = (dM_bh / (delta_t * u.yr)).to(u.Msun / u.yr)
+                
+                # Drain each shell in proportion to its gas mass. Because the weight
+                # is m_i / M_tot, this is a uniform fractional depletion, so rhogas
+                # stays >= 0 by construction whenever dM_bh <= M_gas_bondi.
+                frac       = float((dM_bh / M_gas_bondi).decompose())
+                depletion  = np.where(in_bondi, frac, 0.0)
+                rhogas     = rhogas * (1.0 - depletion)
+
+                M_bh_accreted = M_bh_accreted + dM_bh
+            else:
+                mdot_bh = 0 * u.Msun / u.yr
+                dM_bh   = 0 * u.Msun
+        else:
+            mdot_bh = 0 * u.Msun / u.yr
+            dM_bh   = 0 * u.Msun
+
+
         # rho_prod = rho_prod + collision_merger_gain - rho_lost_sdf
         # rho_prod = np.where(rho_prod < 0 * (u.Msun/u.pc**3), 0 * (u.Msun/u.pc**3), rho_prod)
 
-        rhostars = rhostar_old - total_collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
+
+        #rho_lost_sdf already contains the products
+        rhostars = rhostar_old - collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
         rhostars_trackn = (
             rhostar_old
-            - total_collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
+            - collision_loss - rho_lost_gdf - rho_lost_sdf - rho_lost_srlx
         )
         # rhogas    = (rhogas_old + collision_loss - gas_lost )* supernova_factor
         # rhostars  = rhostar_old - collision_loss -rho_lost_gdf-rho_lost_sdf - rho_lost_srlx#this array provides the true mass density
@@ -419,19 +478,22 @@ def per_system_te(
             print("Core Collapse!!")
             break
 
-        floor = 1e-4 * (u.Msun / u.pc**3)
-        completely_depleted = rhostars <= 1e-4 * (u.Msun / u.pc**3)
-        rhostars       = np.where(completely_depleted, floor, rhostars)
-        rhostars_trackn = np.where(
-            rhostars_trackn <= 0 * (u.Msun / u.pc**3), floor, rhostars_trackn
-        )
+        # rho_* is now guaranteed >= floor by construction, so no clamping.
+        frozen = rhostars <= floor * (1 + 1e-12)   # diagnostic only
+        depleted = rhostars < shell_floors         # < 1 star: stop collisions
+        no_collisions = np.where(depleted, 0, 1)
+
+        if frozen.all():
+            print(f"All shells hit the density floor at t = {timestamp:.3e} yr")
+            break
 
         # ------------------------------------------------------------------ #
         # gas velocity damping for the next timestep
         # ------------------------------------------------------------------ #
         if velocity_damping:
             # t_gdf = gas_dynamical_friction_timescale(v, Mstar, rhogas)
-            t_gdf = gas_2phase_dynamical_friction_timescale(v,Mstar,rho1,T1,v/cs1,mu1, rhogas, T2, v/cs2, mu2, f1)
+            # t_gdf = gas_2phase_dynamical_friction_timescale(v,Mstar,rho1,T1,v/cs1,mu1, rhogas, T2, v/cs2, mu2, f1)
+            t_gdf = g_df
             decay = np.exp(-delta_t * u.yr / t_gdf)
             v = v * decay
 
@@ -443,13 +505,15 @@ def per_system_te(
             vfloor = factor * sigma 
             v = np.where(v<vfloor, vfloor, v)
 
-            v_abs_floor = 0.000001 * np.min(sigma)
+            v_abs_floor = 0.000001 * sigma
             v = np.where(v < v_abs_floor, v_abs_floor, v)
             # calculate the new constructive / destructive criterion
             constructive = np.where(v < v_esc_star, 1, 0)
             destructive  = np.where(v > v_esc_star, 1, 0)
         # print(constructive)
         # print(rhostars)
+
+        v_esc_star   = escape_velocity(Mstar, stellar_radius_approximation(Mstar))
 
 
         # ------------------------------------------------------------------ #
@@ -464,6 +528,8 @@ def per_system_te(
         central_mass_rate_array.append(np.sum(mass_accreted_central)/delta_t/u.yr)
         central_mass_per_r_rate_array.append(mass_accreted_central/delta_t/u.yr)
         rmax = np.where((mass_accreted_central/delta_t)== max((mass_accreted_central/delta_t)))[0]
+        M_bh_accreted_array.append(M_bh_accreted)
+        mdot_bh_array.append(mdot_bh)
         # r_central_mass_max_array.append(radii[rmax][0])
         # central_volumetric_rate_array.append((rho_lost_sdf +rho_lost_gdf)/ delta_t / u.yr)
 
@@ -475,10 +541,11 @@ def per_system_te(
         if bondi_stars:
             #bondi_mdot_stars = stellar_bondi_accretion_rate(rhogas,Mstar,cs, v)
             bondi_mdot_stars = stellar_2phase_bondi_accretion_rate(rho1,rhogas,Mstar,cs1,cs2,v, f1)
+            rhogas = rhogas - (bondi_mdot_stars * delta_t * u.yr * rhostars/Mstar ) # need to subtract the gas that accreted to stars
+            rhogas = np.where(rhogas<0 *u.Msun/(u.pc**3), 0*u.Msun/(u.pc**3), rhogas)
             Mstar += bondi_mdot_stars * delta_t * u.yr
-            print(Mstar)
-
-            
+        rho1 = f1* rhogas # *rho1factor
+        print(timestamp)
 
 
     print("Iterated through " + str(len(t_array)) + " steps")
@@ -498,6 +565,8 @@ def per_system_te(
         t_gb = t_gas_buildup,
         t_gdf = t_gas_df,
         t_rlx = t_relaxation,
+        M_bh_accreted = M_bh_accreted_array, 
+        mdot_bh = mdot_bh_array,
         # central_volumetric_rate = central_volumetric_rate_array,
     )
 
